@@ -41,6 +41,16 @@ No additional API keys needed - it uses your existing Claude Code login.
 brew install --cask younghyundev/tap/token-meter
 ```
 
+### Troubleshooting: "App is damaged" error
+
+If you see a "damaged" warning when opening the app, run:
+
+```bash
+xattr -cr /Applications/TokenMeter.app
+```
+
+This is because the app is not yet code-signed with an Apple Developer certificate. The Homebrew cask handles this automatically.
+
 ### Build from Source
 
 Requires **Xcode 15+** and **macOS 14 (Sonoma)** or later.
