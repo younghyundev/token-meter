@@ -1,7 +1,7 @@
 # Token Meter
 
 <p align="center">
-  <img src="Resources/claude-icon.svg" width="128" height="128" alt="Token Meter">
+  <img src="Resources/AppIcon.svg" width="200" height="200" alt="Token Meter">
 </p>
 
 <p align="center">
