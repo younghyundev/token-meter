@@ -16,14 +16,15 @@ struct MenuBarLabel: View {
     }
 
     private static let claudeIcon: NSImage = {
-        // Load from app bundle Resources
         let bundle = Bundle.main
-        let candidates = [
-            bundle.path(forResource: "claude-icon-16", ofType: "png"),
-            bundle.resourcePath.map { "\($0)/claude-icon-16.png" },
+
+        // Try loading the pixel art mascot icon
+        let mascotCandidates = [
+            bundle.path(forResource: "menubar-icon-16", ofType: "png"),
+            bundle.resourcePath.map { "\($0)/menubar-icon-16.png" },
         ]
 
-        for candidate in candidates {
+        for candidate in mascotCandidates {
             guard let path = candidate,
                   let image = NSImage(contentsOfFile: path) else { continue }
             image.isTemplate = true
@@ -38,7 +39,7 @@ struct MenuBarLabel: View {
             .deletingLastPathComponent()  // Contents/
             .appendingPathComponent("Contents/Resources")
 
-        let fallbackPath = resourcesDir.appendingPathComponent("claude-icon-16.png").path
+        let fallbackPath = resourcesDir.appendingPathComponent("menubar-icon-16.png").path
         if let image = NSImage(contentsOfFile: fallbackPath) {
             image.isTemplate = true
             image.size = NSSize(width: 16, height: 16)
@@ -46,7 +47,7 @@ struct MenuBarLabel: View {
         }
 
         // Last resort: SF Symbol
-        let fallback = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Claude")!
+        let fallback = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Token Meter")!
         fallback.isTemplate = true
         return fallback
     }()

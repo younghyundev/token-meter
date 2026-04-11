@@ -13,6 +13,8 @@ build:
 	cp Resources/Info.plist "$(APP_DIR)/Contents/Info.plist"
 	cp Resources/claude-icon-16.png "$(APP_DIR)/Contents/Resources/"
 	cp Resources/claude-icon-32.png "$(APP_DIR)/Contents/Resources/"
+	cp Resources/menubar-icon-16.png "$(APP_DIR)/Contents/Resources/"
+	cp Resources/menubar-icon-32.png "$(APP_DIR)/Contents/Resources/"
 	cp Resources/AppIcon.icns "$(APP_DIR)/Contents/Resources/"
 	@echo "✓ Built $(APP_DIR)"
 

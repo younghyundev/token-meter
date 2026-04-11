@@ -26,6 +26,7 @@ struct PopoverContentView: View {
             footer
         }
         .frame(width: 300)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Header
