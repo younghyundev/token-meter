@@ -35,7 +35,10 @@ final class AnthropicUsageService: ObservableObject {
     private let tokenExpirySeconds = 3600
     private let oauthClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 
-    private static let keychainService = "Claude Code-credentials"
+    private static let credentialsFileURL: URL = {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/.credentials.json")
+    }()
 
     private static let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -72,11 +75,28 @@ final class AnthropicUsageService: ObservableObject {
     // MARK: - Credentials
 
     func loadCredentials() {
-        if loadFromKeychain() { return }
-        loadFromFile()
+        // 1) 파일에서 먼저 시도 (키체인 접근 없음)
+        if let data = try? Data(contentsOf: Self.credentialsFileURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let oauth = json["claudeAiOauth"] as? [String: Any],
+           let accessToken = oauth["accessToken"] as? String {
+            cachedAccessToken = accessToken
+            cachedRefreshToken = oauth["refreshToken"] as? String
+            cachedFileJSON = json
+            hasCredentials = true
+            return
+        }
+
+        // 2) 파일이 없으면 키체인에서 한 번만 읽어서 파일로 마이그레이션
+        if migrateFromKeychain() { return }
+
+        hasCredentials = false
     }
 
-    private func loadFromKeychain() -> Bool {
+    private static let keychainService = "Claude Code-credentials"
+
+    /// 키체인에서 읽어서 파일로 저장 (최초 1회만 실행됨)
+    private func migrateFromKeychain() -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.keychainService,
@@ -98,26 +118,10 @@ final class AnthropicUsageService: ObservableObject {
         cachedRefreshToken = oauth["refreshToken"] as? String
         cachedFileJSON = json
         hasCredentials = true
+
+        // 파일로 저장하여 다음부터는 키체인 접근 불필요
+        try? data.write(to: Self.credentialsFileURL, options: .atomic)
         return true
-    }
-
-    private func loadFromFile() {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/.credentials.json")
-
-        guard let data = try? Data(contentsOf: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let oauth = json["claudeAiOauth"] as? [String: Any],
-              let accessToken = oauth["accessToken"] as? String
-        else {
-            hasCredentials = false
-            return
-        }
-
-        cachedAccessToken = accessToken
-        cachedRefreshToken = oauth["refreshToken"] as? String
-        cachedFileJSON = json
-        hasCredentials = true
     }
 
     // MARK: - Token Refresh
@@ -160,20 +164,8 @@ final class AnthropicUsageService: ObservableObject {
         json["claudeAiOauth"] = oauthDict
         cachedFileJSON = json
 
-        guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-
-        // Update Keychain
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-        ]
-        let attrs: [String: Any] = [kSecValueData as String: data]
-        let status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
-        if status == errSecItemNotFound {
-            var newItem = query
-            newItem[kSecValueData as String] = data
-            SecItemAdd(newItem as CFDictionary, nil)
-        }
+        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]) else { return }
+        try? data.write(to: Self.credentialsFileURL, options: .atomic)
     }
 
     // MARK: - Fetch Usage
