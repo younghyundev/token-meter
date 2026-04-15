@@ -30,7 +30,8 @@ final class AnthropicUsageService: ObservableObject {
     private var cachedRefreshToken: String?
     private var cachedFileJSON: [String: Any]?
     private var lastFetchedAt: Date?
-    private let minFetchInterval: TimeInterval = 55
+    private let minForceInterval: TimeInterval = 60
+    var minFetchInterval: TimeInterval = 55
     private var isFetching = false
     private let tokenExpirySeconds = 3600
     private let oauthClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -178,9 +179,13 @@ final class AnthropicUsageService: ObservableObject {
 
         guard !isFetching else { return }
 
-        if !force, let lastFetch = lastFetchedAt,
-           Date().timeIntervalSince(lastFetch) < minFetchInterval {
-            return
+        if let lastFetch = lastFetchedAt {
+            let elapsed = Date().timeIntervalSince(lastFetch)
+            if force {
+                guard elapsed >= minForceInterval else { return }
+            } else {
+                guard elapsed >= minFetchInterval else { return }
+            }
         }
 
         isFetching = true

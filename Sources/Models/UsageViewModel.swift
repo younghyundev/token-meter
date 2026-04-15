@@ -13,6 +13,7 @@ final class UsageViewModel: ObservableObject {
     private let projectParser = TokenParser()
     private var timer: Timer?
     private var cancellable: AnyCancellable?
+    private var started = false
 
     /// Cached parsed entries — only re-parsed on refresh, not on period change
     private var cachedEntries: [TokenUsageEntry] = []
@@ -51,7 +52,10 @@ final class UsageViewModel: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
+        guard !started else { return }
+        started = true
         usageService.loadCredentials()
+        syncFetchInterval()
         Task { await refresh() }
         scheduleTimer()
 
@@ -59,8 +63,13 @@ final class UsageViewModel: ObservableObject {
             .dropFirst()
             .removeDuplicates()
             .sink { [weak self] _ in
+                self?.syncFetchInterval()
                 self?.scheduleTimer()
             }
+    }
+
+    private func syncFetchInterval() {
+        usageService.minFetchInterval = TimeInterval(max(refreshInterval - 5, 55))
     }
 
     func stop() {
