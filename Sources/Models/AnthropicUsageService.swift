@@ -172,6 +172,9 @@ final class AnthropicUsageService: ObservableObject {
     // MARK: - Fetch Usage
 
     func fetchUsage(force: Bool = false) async {
+        if !hasCredentials {
+            loadCredentials()
+        }
         guard hasCredentials else {
             fetchState = .error("No credentials. Log in to Claude Code first.")
             return
@@ -225,16 +228,23 @@ final class AnthropicUsageService: ObservableObject {
             }
 
             if (httpResponse.statusCode == 401 || httpResponse.statusCode == 403) && retryOnAuthFailure {
+                // 1) refresh token으로 재발급
                 if await refreshAccessToken() {
                     await performFetch(retryOnAuthFailure: false)
-                } else {
-                    loadCredentials()
-                    if hasCredentials {
-                        await performFetch(retryOnAuthFailure: false)
-                    } else {
-                        fetchState = .error("Auth failed. Re-login to Claude Code.")
-                    }
+                    return
                 }
+                // 2) 파일 재로드 (Claude Code가 파일을 갱신했을 수 있음)
+                loadCredentials()
+                if hasCredentials, cachedAccessToken != accessToken {
+                    await performFetch(retryOnAuthFailure: false)
+                    return
+                }
+                // 3) 키체인에서 읽기 (Claude Code가 키체인에 새 토큰 저장했을 수 있음)
+                if migrateFromKeychain(), cachedAccessToken != accessToken {
+                    await performFetch(retryOnAuthFailure: false)
+                    return
+                }
+                fetchState = .error("Auth failed. Re-login to Claude Code.")
                 return
             }
 
