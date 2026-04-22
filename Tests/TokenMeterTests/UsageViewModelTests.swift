@@ -3,59 +3,91 @@ import XCTest
 
 @MainActor
 final class UsageViewModelTests: XCTestCase {
-    func test_refreshUsesRepositoryOutput() async {
-        let usageService = MockUsageService()
-        let repository = MockProjectUsageRepository(
-            snapshots: [
-                ProviderProjectSnapshot(
-                    provider: .codex,
-                    entries: [
-                        makeEntry(projectPath: "/tmp/workspaces/alpha", totalTokens: 12),
-                        makeEntry(projectPath: "/tmp/workspaces/beta", totalTokens: 4)
-                    ],
-                    availability: .available
-                )
-            ]
-        )
+    func test_providerProjectPeriodsRemainIndependent() {
         let viewModel = UsageViewModel(
-            usageService: usageService,
-            projectUsageRepository: repository
+            usageService: MockUsageService(),
+            claudeProjectRepository: MockProjectUsageRepository(provider: .claude, snapshots: [makeSnapshot(provider: .claude, entries: [])]),
+            codexProjectRepository: MockProjectUsageRepository(provider: .codex, snapshots: [makeSnapshot(provider: .codex, entries: [])]),
+            codexStatusRepository: MockCodexStatusRepository(snapshots: [.loginRequired])
         )
 
-        await viewModel.refresh()
+        viewModel.setProjectPeriod(.week, for: .claude)
+        viewModel.setProjectPeriod(.all, for: .codex)
 
-        XCTAssertEqual(usageService.fetchInvocations, [.nonForced])
-        XCTAssertEqual(repository.requestedPeriods, [.day])
-        XCTAssertEqual(viewModel.projects.map(\.displayName), ["alpha", "beta"])
-        XCTAssertEqual(viewModel.projects.map(\.totalTokens), [12, 4])
+        XCTAssertEqual(viewModel.currentProjectPeriod(for: .claude), .week)
+        XCTAssertEqual(viewModel.currentProjectPeriod(for: .codex), .all)
+        XCTAssertEqual(viewModel.claudeProjectPeriod, .week)
+        XCTAssertEqual(viewModel.codexProjectPeriod, .all)
     }
 
-    func test_unavailableRepositoryResultDoesNotCrash() async {
+    func test_forceRefreshPreservesSelectedProviderAndOnlyRefreshesVisibleProvider() async {
         let usageService = MockUsageService()
-        let repository = MockProjectUsageRepository(
-            snapshots: [
-                ProviderProjectSnapshot(
-                    provider: .codex,
-                    entries: [makeEntry(projectPath: "/tmp/workspaces/alpha", totalTokens: 10)],
-                    availability: .available
-                ),
-                ProviderProjectSnapshot(
-                    provider: .codex,
-                    entries: [],
-                    availability: .unavailable("Codex local data unavailable")
-                )
-            ]
+        let claudeRepository = MockProjectUsageRepository(
+            provider: .claude,
+            snapshots: [makeSnapshot(provider: .claude, entries: [makeEntry(projectPath: "/tmp/workspaces/claude", totalTokens: 8)])]
+        )
+        let codexRepository = MockProjectUsageRepository(
+            provider: .codex,
+            snapshots: [makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/workspaces/codex", totalTokens: 13)])]
+        )
+        let codexStatusRepository = MockCodexStatusRepository(
+            snapshots: [.availabilityOnly(title: "Codex available", subtitle: "Authenticated")]
         )
         let viewModel = UsageViewModel(
             usageService: usageService,
-            projectUsageRepository: repository
+            claudeProjectRepository: claudeRepository,
+            codexProjectRepository: codexRepository,
+            codexStatusRepository: codexStatusRepository
         )
 
-        await viewModel.refresh()
+        viewModel.selectedProvider = .codex
+
         await viewModel.forceRefresh()
 
-        XCTAssertEqual(usageService.fetchInvocations, [.nonForced, .forced])
-        XCTAssertTrue(viewModel.projects.isEmpty)
+        XCTAssertEqual(viewModel.selectedProvider, .codex)
+        XCTAssertEqual(usageService.fetchInvocations, [.forced])
+        XCTAssertTrue(claudeRepository.requestedPeriods.isEmpty)
+        XCTAssertEqual(codexRepository.requestedPeriods, [.day])
+        XCTAssertEqual(codexStatusRepository.snapshotCalls, 1)
+        XCTAssertEqual(viewModel.displayProjects(for: .codex).map(\.displayName), ["codex"])
+        XCTAssertEqual(viewModel.codexStatusSnapshot, .availabilityOnly(title: "Codex available", subtitle: "Authenticated"))
+    }
+
+    func test_codexEmptySnapshotPublishesAvailableEmptyState() async {
+        let viewModel = UsageViewModel(
+            usageService: MockUsageService(),
+            claudeProjectRepository: MockProjectUsageRepository(provider: .claude, snapshots: [makeSnapshot(provider: .claude, entries: [])]),
+            codexProjectRepository: MockProjectUsageRepository(
+                provider: .codex,
+                snapshots: [
+                    ProviderProjectSnapshot(
+                        provider: .codex,
+                        entries: [],
+                        availability: .available
+                    )
+                ]
+            ),
+            codexStatusRepository: MockCodexStatusRepository(
+                snapshots: [.availabilityOnly(title: "Codex available", subtitle: "Authenticated")]
+            )
+        )
+
+        viewModel.selectedProvider = .codex
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.codexProjectAvailability, .available)
+        XCTAssertTrue(viewModel.codexProjects.isEmpty)
+        XCTAssertTrue(viewModel.displayProjects(for: .codex).isEmpty)
+        XCTAssertEqual(viewModel.projectAvailability(for: .codex), .available)
+        XCTAssertEqual(viewModel.codexStatusSnapshot, .availabilityOnly(title: "Codex available", subtitle: "Authenticated"))
+    }
+
+    private func makeSnapshot(provider: UsageProvider, entries: [TokenUsageEntry]) -> ProviderProjectSnapshot {
+        ProviderProjectSnapshot(
+            provider: provider,
+            entries: entries,
+            availability: .available
+        )
     }
 
     private func makeEntry(projectPath: String, totalTokens: Int) -> TokenUsageEntry {
@@ -95,15 +127,38 @@ private final class MockUsageService: UsageServiceProtocol {
 }
 
 private final class MockProjectUsageRepository: ProjectUsageRepository {
+    private let provider: UsageProvider
     private var snapshots: [ProviderProjectSnapshot]
     private(set) var requestedPeriods: [ProjectPeriod] = []
 
-    init(snapshots: [ProviderProjectSnapshot]) {
+    init(provider: UsageProvider, snapshots: [ProviderProjectSnapshot]) {
+        self.provider = provider
         self.snapshots = snapshots
     }
 
     func projectUsage(for period: ProjectPeriod) async -> ProviderProjectSnapshot {
         requestedPeriods.append(period)
+        if snapshots.count > 1 {
+            return snapshots.removeFirst()
+        }
+        return snapshots.first ?? ProviderProjectSnapshot(
+            provider: provider,
+            entries: [],
+            availability: .available
+        )
+    }
+}
+
+private final class MockCodexStatusRepository: CodexStatusRepositoryProtocol {
+    private var snapshots: [CodexStatusSnapshot]
+    private(set) var snapshotCalls = 0
+
+    init(snapshots: [CodexStatusSnapshot]) {
+        self.snapshots = snapshots
+    }
+
+    func snapshot() -> CodexStatusSnapshot {
+        snapshotCalls += 1
         if snapshots.count > 1 {
             return snapshots.removeFirst()
         }
