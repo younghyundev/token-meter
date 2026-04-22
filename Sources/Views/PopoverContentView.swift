@@ -58,16 +58,38 @@ struct PopoverContentView: View {
 
     private var usageContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if viewModel.hasCredentials {
-                sessionSection
-                Divider().padding(.horizontal)
-                weeklySection
+            providerSelector
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+            Divider().padding(.horizontal)
+
+            switch viewModel.selectedProvider {
+            case .claude:
+                if viewModel.hasCredentials {
+                    sessionSection
+                    Divider().padding(.horizontal)
+                    weeklySection
+                    Divider().padding(.horizontal)
+                    projectSection
+                } else {
+                    noCredentialsView
+                }
+            case .codex:
+                codexSessionSection
                 Divider().padding(.horizontal)
                 projectSection
-            } else {
-                noCredentialsView
             }
         }
+    }
+
+    private var providerSelector: some View {
+        Picker("", selection: $viewModel.selectedProvider) {
+            Text(L("provider.claude")).tag(UsageProvider.claude)
+            Text(L("provider.codex")).tag(UsageProvider.codex)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
     }
 
     // MARK: - Session
@@ -106,11 +128,20 @@ struct PopoverContentView: View {
 
     private var projectSection: some View {
         ProjectBreakdownView(
-            projects: viewModel.projects,
-            period: $viewModel.projectPeriod
+            projects: viewModel.displayProjects(for: viewModel.selectedProvider),
+            period: Binding(
+                get: { viewModel.currentProjectPeriod(for: viewModel.selectedProvider) },
+                set: { viewModel.setProjectPeriod($0, for: viewModel.selectedProvider) }
+            )
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var codexSessionSection: some View {
+        CodexStatusCardView(snapshot: viewModel.codexStatusSnapshot)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
     }
 
     // MARK: - No Credentials
@@ -188,6 +219,8 @@ struct PopoverContentView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .accessibilityLabel(viewModel.selectedProvider == .codex ? L("footer.refresh.codex") : L("footer.refresh"))
+            .help(viewModel.selectedProvider == .codex ? L("footer.refresh.codex") : L("footer.refresh"))
 
             Button(L("footer.quit")) {
                 NSApplication.shared.terminate(nil)
