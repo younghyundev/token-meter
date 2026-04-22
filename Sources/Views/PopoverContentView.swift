@@ -129,13 +129,43 @@ struct PopoverContentView: View {
     private var projectSection: some View {
         ProjectBreakdownView(
             projects: viewModel.displayProjects(for: viewModel.selectedProvider),
+            availability: viewModel.projectAvailability(for: viewModel.selectedProvider),
+            emptyMessage: projectEmptyMessage,
+            loginRequiredMessage: projectLoginRequiredMessage,
+            sectionTitle: projectSectionTitle,
             period: Binding(
                 get: { viewModel.currentProjectPeriod(for: viewModel.selectedProvider) },
-                set: { viewModel.setProjectPeriod($0, for: viewModel.selectedProvider) }
+                set: { setProjectPeriod($0, for: viewModel.selectedProvider) }
             )
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var projectSectionTitle: String {
+        L("projects.title")
+    }
+
+    private var projectEmptyMessage: String {
+        switch viewModel.selectedProvider {
+        case .claude:
+            L("projects.empty")
+        case .codex:
+            L("codex.projects.empty.title")
+        }
+    }
+
+    private var projectLoginRequiredMessage: String {
+        switch viewModel.selectedProvider {
+        case .claude:
+            L("login.description")
+        case .codex:
+            L("codex.login.description")
+        }
+    }
+
+    private func setProjectPeriod(_ period: ProjectPeriod, for provider: UsageProvider) {
+        viewModel.setProjectPeriod(period, for: provider)
     }
 
     private var codexSessionSection: some View {

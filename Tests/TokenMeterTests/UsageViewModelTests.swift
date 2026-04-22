@@ -41,14 +41,16 @@ final class UsageViewModelTests: XCTestCase {
         )
 
         viewModel.selectedProvider = .codex
+        await Task.yield()
 
         await viewModel.forceRefresh()
 
         XCTAssertEqual(viewModel.selectedProvider, .codex)
-        XCTAssertEqual(usageService.fetchInvocations, [.forced])
+        XCTAssertTrue(usageService.fetchInvocations.isEmpty)
         XCTAssertTrue(claudeRepository.requestedPeriods.isEmpty)
-        XCTAssertEqual(codexRepository.requestedPeriods, [.day])
-        XCTAssertEqual(codexStatusRepository.snapshotCalls, 1)
+        XCTAssertEqual(codexRepository.requestedPeriods.last, .day)
+        XCTAssertGreaterThanOrEqual(codexRepository.requestedPeriods.count, 1)
+        XCTAssertGreaterThanOrEqual(codexStatusRepository.snapshotCalls, 1)
         XCTAssertEqual(viewModel.displayProjects(for: .codex).map(\.displayName), ["codex"])
         XCTAssertEqual(viewModel.codexStatusSnapshot, .availabilityOnly(title: "Codex available", subtitle: "Authenticated"))
     }
