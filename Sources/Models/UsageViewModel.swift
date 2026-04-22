@@ -3,24 +3,45 @@ import Combine
 import SwiftUI
 
 @MainActor
+protocol UsageServiceProtocol: AnyObject {
+    var sessionPercentage: Double { get }
+    var weeklyPercentage: Double { get }
+    var resetTimeRemaining: String? { get }
+    var fetchState: UsageFetchState { get }
+    var hasCredentials: Bool { get }
+    var minFetchInterval: TimeInterval { get set }
+
+    func loadCredentials()
+    func fetchUsage(force: Bool) async
+}
+
+extension AnthropicUsageService: UsageServiceProtocol {}
+
+@MainActor
 final class UsageViewModel: ObservableObject {
     @Published private(set) var lastRefreshed: Date = .now
     @Published var refreshInterval: Int = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 60 {
         didSet { UserDefaults.standard.set(refreshInterval, forKey: "refreshInterval") }
     }
 
-    let usageService = AnthropicUsageService()
-    private let projectParser = TokenParser()
+    let usageService: any UsageServiceProtocol
+    private let projectUsageRepository: any ProjectUsageRepository
     private var timer: Timer?
     private var cancellable: AnyCancellable?
+    private var projectRefreshTask: Task<Void, Never>?
     private var started = false
-
-    /// Cached parsed entries — only re-parsed on refresh, not on period change
-    private var cachedEntries: [TokenUsageEntry] = []
 
     @Published private(set) var projects: [ProjectUsage] = []
     @Published var projectPeriod: ProjectPeriod = .day {
-        didSet { rebuildProjects() }
+        didSet { loadProjects() }
+    }
+
+    init(
+        usageService: (any UsageServiceProtocol)? = nil,
+        projectUsageRepository: (any ProjectUsageRepository)? = nil
+    ) {
+        self.usageService = usageService ?? AnthropicUsageService()
+        self.projectUsageRepository = projectUsageRepository ?? ClaudeProjectUsageRepository()
     }
 
     // MARK: - Computed from API
@@ -76,6 +97,7 @@ final class UsageViewModel: ObservableObject {
         timer?.invalidate()
         timer = nil
         cancellable?.cancel()
+        projectRefreshTask?.cancel()
     }
 
     private func scheduleTimer() {
@@ -89,71 +111,69 @@ final class UsageViewModel: ObservableObject {
     }
 
     func refresh() async {
-        // Fetch API usage (network, already async)
-        await usageService.fetchUsage()
-
-        // Parse JSONL in background
-        let parser = projectParser
-        let entries = await Task.detached {
-            parser.parseAll()
-        }.value
-
-        cachedEntries = entries
-        rebuildProjects()
+        await usageService.fetchUsage(force: false)
+        await refreshProjects()
         lastRefreshed = .now
     }
 
     func forceRefresh() async {
         await usageService.fetchUsage(force: true)
-
-        let parser = projectParser
-        let entries = await Task.detached {
-            parser.parseAll()
-        }.value
-
-        cachedEntries = entries
-        rebuildProjects()
+        await refreshProjects()
         lastRefreshed = .now
     }
 
     // MARK: - Project Breakdown
 
     func loadProjects() {
-        rebuildProjects()
+        projectRefreshTask?.cancel()
+        projectRefreshTask = Task { [weak self] in
+            await self?.refreshProjects()
+        }
     }
 
-    private func rebuildProjects() {
-        let filtered: [TokenUsageEntry]
-        switch projectPeriod {
+    private func refreshProjects() async {
+        let snapshot = await projectUsageRepository.projectUsage(for: projectPeriod)
+        guard !Task.isCancelled else { return }
+
+        switch ProjectUsageAggregation.projectUsage(from: snapshot) {
+        case let .available(projects):
+            self.projects = projects
+        case .unavailable:
+            projects = []
+        }
+    }
+}
+
+private struct ClaudeProjectUsageRepository: ProjectUsageRepository, Sendable {
+    private let parser: TokenParser
+
+    init(parser: TokenParser = TokenParser()) {
+        self.parser = parser
+    }
+
+    func projectUsage(for period: ProjectPeriod) async -> ProviderProjectSnapshot {
+        let parser = parser
+        let entries = await Task.detached {
+            parser.parseAll()
+        }.value
+
+        return ProviderProjectSnapshot(
+            provider: .claude,
+            entries: filter(entries, for: period),
+            availability: .available
+        )
+    }
+
+    private func filter(_ entries: [TokenUsageEntry], for period: ProjectPeriod) -> [TokenUsageEntry] {
+        switch period {
         case .day:
             let cutoff = Date.now.addingTimeInterval(-24 * 3600)
-            filtered = cachedEntries.filter { $0.timestamp >= cutoff }
+            return entries.filter { $0.timestamp >= cutoff }
         case .week:
             let cutoff = Date.now.addingTimeInterval(-7 * 24 * 3600)
-            filtered = cachedEntries.filter { $0.timestamp >= cutoff }
+            return entries.filter { $0.timestamp >= cutoff }
         case .all:
-            filtered = cachedEntries
+            return entries
         }
-
-        let grouped = Dictionary(grouping: filtered, by: \.projectPath)
-        let totalTokens = max(filtered.reduce(0) { $0 + $1.totalTokens }, 1)
-
-        projects = grouped.map { path, items in
-            let total = items.reduce(0) { $0 + $1.totalTokens }
-            let billable = items.reduce(0) { $0 + $1.billableTokens }
-            return ProjectUsage(
-                name: path,
-                displayName: Self.humanizeProjectPath(path),
-                totalTokens: total,
-                billableTokens: billable,
-                percentage: Double(total) / Double(totalTokens) * 100
-            )
-        }
-        .sorted { $0.totalTokens > $1.totalTokens }
-    }
-
-    private static func humanizeProjectPath(_ path: String) -> String {
-        let lastComponent = URL(fileURLWithPath: path).lastPathComponent
-        return lastComponent.isEmpty ? path : lastComponent
     }
 }
