@@ -4,7 +4,7 @@ enum ProjectPeriod: String, CaseIterable {
     case day, week, all
 }
 
-enum UsageProvider {
+enum UsageProvider: Equatable {
     case claude
     case codex
 }
