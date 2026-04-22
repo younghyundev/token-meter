@@ -88,8 +88,8 @@ private let strings: [AppLanguage: [String: String]] = [
         "settings.language": "Language",
         "settings.interval": "Update interval",
         "settings.interval.unit": "sec",
-        "period.day": "1D",
-        "period.week": "7D",
-        "period.all": "All",
+        "period.day": "1 day",
+        "period.week": "7 days",
+        "period.all": "all",
     ],
 ]

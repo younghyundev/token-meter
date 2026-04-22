@@ -41,7 +41,7 @@ final class UsageViewModel: ObservableObject {
     private var isSyncingProjectPeriod = false
 
     @Published var selectedProvider: UsageProvider = .claude {
-        didSet { syncSelectedProviderState() }
+        didSet { syncSelectedProviderState(shouldLoadProjects: true) }
     }
     @Published private(set) var projects: [ProjectUsage] = []
     @Published private(set) var claudeProjects: [ProjectUsage] = []
@@ -139,13 +139,17 @@ final class UsageViewModel: ObservableObject {
     }
 
     func refresh() async {
-        await usageService.fetchUsage(force: false)
+        if selectedProvider == .claude {
+            await usageService.fetchUsage(force: false)
+        }
         await refreshProviderState(for: selectedProvider)
         lastRefreshed = .now
     }
 
     func forceRefresh() async {
-        await usageService.fetchUsage(force: true)
+        if selectedProvider == .claude {
+            await usageService.fetchUsage(force: true)
+        }
         await refreshProviderState(for: selectedProvider)
         lastRefreshed = .now
     }

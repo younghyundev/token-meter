@@ -2,12 +2,16 @@ import SwiftUI
 
 struct ProjectBreakdownView: View {
     let projects: [ProjectUsage]
+    let availability: ProviderAvailability
+    let emptyMessage: String
+    let loginRequiredMessage: String
+    let sectionTitle: String
     @Binding var period: ProjectPeriod
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(L("projects.title"))
+                Text(sectionTitle)
                     .font(.system(size: 12, weight: .semibold))
 
                 Spacer()
@@ -22,16 +26,26 @@ struct ProjectBreakdownView: View {
                 .frame(width: 140)
             }
 
-            if projects.isEmpty {
-                Text(L("projects.empty"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-            } else {
+            switch availability {
+            case .loginRequired:
+                stateMessage(loginRequiredMessage)
+            case let .unavailable(message):
+                stateMessage(message)
+            case .available where projects.isEmpty:
+                stateMessage(emptyMessage)
+            case .available:
                 ForEach(Array(projects.prefix(8).enumerated()), id: \.element.id) { index, project in
                     ProjectRow(project: project, colorIndex: index)
                 }
             }
         }
+    }
+
+    private func stateMessage(_ message: String) -> some View {
+        Text(message)
+            .font(.system(size: 11))
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

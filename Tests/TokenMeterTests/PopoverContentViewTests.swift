@@ -6,9 +6,9 @@ final class PopoverContentViewTests: XCTestCase {
     func test_usageViewModelDefaultsToClaudeProvider() {
         let viewModel = UsageViewModel(
             usageService: PopoverMockUsageService(),
-            claudeProjectRepository: PopoverMockProjectUsageRepository(provider: .claude, snapshot: makeSnapshot(provider: .claude)),
-            codexProjectRepository: PopoverMockProjectUsageRepository(provider: .codex, snapshot: makeSnapshot(provider: .codex)),
-            codexStatusRepository: PopoverMockCodexStatusRepository(snapshot: .loginRequired)
+            claudeProjectRepository: PopoverMockProjectUsageRepository(provider: .claude, snapshots: [makeSnapshot(provider: .claude)]),
+            codexProjectRepository: PopoverMockProjectUsageRepository(provider: .codex, snapshots: [makeSnapshot(provider: .codex)]),
+            codexStatusRepository: PopoverMockCodexStatusRepository(snapshots: [.loginRequired])
         )
 
         XCTAssertEqual(viewModel.selectedProvider, .claude)
@@ -22,10 +22,60 @@ final class PopoverContentViewTests: XCTestCase {
         XCTAssertEqual(L("footer.refresh.codex"), "Refresh Codex")
         XCTAssertEqual(L("codex.login.title"), "Codex login required")
         XCTAssertEqual(L("codex.unavailable.title"), "Codex unavailable")
+        XCTAssertEqual(L("period.day"), "1 day")
+        XCTAssertEqual(L("period.week"), "7 days")
+        XCTAssertEqual(L("period.all"), "all")
+    }
+
+    func test_switchingProviderLoadsProviderScopedState() async {
+        let claudeRepository = PopoverMockProjectUsageRepository(
+            provider: .claude,
+            snapshots: [
+                ProviderProjectSnapshot(provider: .claude, entries: [], availability: .available)
+            ]
+        )
+        let codexRepository = PopoverMockProjectUsageRepository(
+            provider: .codex,
+            snapshots: [
+                ProviderProjectSnapshot(
+                    provider: .codex,
+                    entries: [makeEntry(projectPath: "/tmp/workspaces/codex", totalTokens: 21)],
+                    availability: .available
+                )
+            ]
+        )
+        let viewModel = UsageViewModel(
+            usageService: PopoverMockUsageService(),
+            claudeProjectRepository: claudeRepository,
+            codexProjectRepository: codexRepository,
+            codexStatusRepository: PopoverMockCodexStatusRepository(
+                snapshots: [.availabilityOnly(title: "Codex available", subtitle: "Authenticated")]
+            )
+        )
+
+        viewModel.selectedProvider = .codex
+        try? await Task.sleep(for: .milliseconds(20))
+
+        XCTAssertEqual(viewModel.displayProjects(for: .codex).map(\.displayName), ["codex"])
+        XCTAssertEqual(viewModel.projectAvailability(for: .codex), .available)
+        XCTAssertEqual(viewModel.codexStatusSnapshot, .availabilityOnly(title: "Codex available", subtitle: "Authenticated"))
     }
 
     private func makeSnapshot(provider: UsageProvider) -> ProviderProjectSnapshot {
         ProviderProjectSnapshot(provider: provider, entries: [], availability: .available)
+    }
+
+    private func makeEntry(projectPath: String, totalTokens: Int) -> TokenUsageEntry {
+        TokenUsageEntry(
+            timestamp: .now,
+            sessionId: UUID().uuidString,
+            projectPath: projectPath,
+            model: "test-model",
+            inputTokens: totalTokens,
+            outputTokens: 0,
+            cacheCreationTokens: 0,
+            cacheReadTokens: 0
+        )
     }
 }
 
@@ -44,28 +94,34 @@ private final class PopoverMockUsageService: UsageServiceProtocol {
 
 private final class PopoverMockProjectUsageRepository: ProjectUsageRepository {
     private let provider: UsageProvider
-    private let snapshot: ProviderProjectSnapshot
+    private var snapshots: [ProviderProjectSnapshot]
 
-    init(provider: UsageProvider, snapshot: ProviderProjectSnapshot) {
+    init(provider: UsageProvider, snapshots: [ProviderProjectSnapshot]) {
         self.provider = provider
-        self.snapshot = snapshot
+        self.snapshots = snapshots
     }
 
     func projectUsage(for period: ProjectPeriod) async -> ProviderProjectSnapshot {
         _ = provider
         _ = period
-        return snapshot
+        if snapshots.count > 1 {
+            return snapshots.removeFirst()
+        }
+        return snapshots.first ?? ProviderProjectSnapshot(provider: provider, entries: [], availability: .available)
     }
 }
 
 private final class PopoverMockCodexStatusRepository: CodexStatusRepositoryProtocol {
-    private let snapshotValue: CodexStatusSnapshot
+    private var snapshots: [CodexStatusSnapshot]
 
-    init(snapshot: CodexStatusSnapshot) {
-        self.snapshotValue = snapshot
+    init(snapshots: [CodexStatusSnapshot]) {
+        self.snapshots = snapshots
     }
 
     func snapshot() -> CodexStatusSnapshot {
-        snapshotValue
+        if snapshots.count > 1 {
+            return snapshots.removeFirst()
+        }
+        return snapshots.first ?? .loginRequired
     }
 }
