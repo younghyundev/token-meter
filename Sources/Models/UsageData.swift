@@ -11,6 +11,7 @@ enum UsageProvider: Equatable {
 
 enum ProviderAvailability: Equatable {
     case available
+    case loginRequired
     case unavailable(String)
 }
 
