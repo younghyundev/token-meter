@@ -47,7 +47,7 @@ Plans:
 
 Plans:
 - [x] `02-01-PLAN.md` - Define availability-first Codex status contracts and provider-scoped view-model state
-- [ ] `02-02-PLAN.md` - Build the Codex popover UI with provider tabs, status card, and provider-specific project filters
+- [x] `02-02-PLAN.md` - Build the Codex popover UI with provider tabs, status card, and provider-specific project filters
 
 **Success Criteria:**
 1. The popover exposes separate `Claude` and `Codex` tabs.

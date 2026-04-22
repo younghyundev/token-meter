@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-04-22T08:18:34.311Z"
+last_updated: "2026-04-22T08:37:22.084Z"
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_plans: 5
+  percent: 100
 ---
 
 # STATE
@@ -22,7 +22,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-04-22)
 
 **Core value:** Developers can glance at the menu bar and immediately understand their remaining coding-agent capacity and which projects are consuming it.
-**Current focus:** Phase 2 - Codex Experience (Plan 2 next)
+**Current focus:** Phase 3 - Regression and Ship Readiness (Plan 1 next)
 
 ## Artifacts
 
@@ -63,11 +63,13 @@ See: `.planning/PROJECT.md` (updated 2026-04-22)
 - Plan `01-03` is complete with a composed `CodexProjectUsageRepository`, repository-driven `UsageViewModel` project refresh, and unavailable-state coverage.
 - Phase 1 is complete, so Phase 2 can build the tabbed Codex UX on top of a tested repository seam instead of adding local Codex I/O to view state.
 - Plan `02-01` is complete with availability-first Codex session contracts, explicit login-required handling, and provider-scoped `UsageViewModel` state for Claude/Codex period independence.
-- The next plan can focus on SwiftUI composition because the popover no longer needs to infer Codex state from fallback strings.
+- Plan `02-02` is complete with the segmented Claude/Codex popover shell, dedicated Codex status card, and provider-scoped project section states.
+- Refresh and project period changes are now scoped to the visible provider, which closes the main correctness gap in the Phase 2 popover UX.
+- Phase 2 is complete, so the next phase can focus on regression verification and distribution readiness for other macOS users.
 
 ## Next Command
 
-`$gsd-execute-phase 2`
+`$gsd-execute-phase 3`
 
 ---
-*State recorded: 2026-04-22 after plan 02-01 execution*
+*State recorded: 2026-04-22 after plan 02-02 execution*

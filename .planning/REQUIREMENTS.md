@@ -7,7 +7,8 @@
 
 ### Navigation
 
-- [ ] **NAV-01**: User can switch between `Claude` and `Codex` tabs in the popover
+- [x] **NAV-01
+**: User can switch between `Claude` and `Codex` tabs in the popover
 
 ### Codex Session Status
 
@@ -23,7 +24,8 @@
 - [x] **CPRJ-01**: User can see Codex token usage grouped by project path
 - [x] **CPRJ-02
 **: User can filter Codex project usage by `1 day`, `7 days`, and `all`
-- [ ] **CPRJ-03**: User sees projects sorted by highest Codex token usage first
+- [x] **CPRJ-03
+**: User sees projects sorted by highest Codex token usage first
 
 ### Stability
 
@@ -59,13 +61,13 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NAV-01 | Phase 2 | Pending |
+| NAV-01 | Phase 2 | Complete |
 | CDEX-01 | Phase 2 | Complete |
 | CDEX-02 | Phase 2 | Complete |
 | CDEX-03 | Phase 2 | Complete |
 | CPRJ-01 | Phase 1 | Complete |
 | CPRJ-02 | Phase 2 | Complete |
-| CPRJ-03 | Phase 2 | Pending |
+| CPRJ-03 | Phase 2 | Complete |
 | SAFE-01 | Phase 3 | Pending |
 | SAFE-02 | Phase 1 | Complete |
 | SAFE-03 | Phase 1 | Complete |
@@ -78,4 +80,4 @@
 
 ---
 *Requirements defined: 2026-04-22*
-*Last updated: 2026-04-22 after plan 02-01 execution*
+*Last updated: 2026-04-22 after plan 02-02 execution*
