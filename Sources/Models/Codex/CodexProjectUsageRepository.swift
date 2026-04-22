@@ -16,23 +16,20 @@ struct CodexProjectUsageRepository: ProjectUsageRepository, Sendable {
     }
 
     func projectUsage(for period: ProjectPeriod) async -> ProviderProjectSnapshot {
-        guard authStateProbe.probe() == .available else {
-            return unavailableSnapshot()
+        switch authStateProbe.probe() {
+        case .missing, .malformed:
+            return loginRequiredSnapshot()
+        case .available:
+            break
         }
 
         let sqliteSnapshot = await sqliteRepository.projectUsage(for: period)
-        guard case .available = sqliteSnapshot.availability,
-              !sqliteSnapshot.entries.isEmpty
-        else {
+        guard case .available = sqliteSnapshot.availability else {
             return unavailableSnapshot()
         }
 
         let rolloutMetadata = rolloutParser.parseAll()
         let normalizedEntries = normalizeEntries(sqliteSnapshot.entries, with: rolloutMetadata)
-
-        guard !normalizedEntries.isEmpty else {
-            return unavailableSnapshot()
-        }
 
         return ProviderProjectSnapshot(
             provider: .codex,
@@ -114,6 +111,14 @@ struct CodexProjectUsageRepository: ProjectUsageRepository, Sendable {
             provider: .codex,
             entries: [],
             availability: .unavailable("Codex local data unavailable")
+        )
+    }
+
+    private func loginRequiredSnapshot() -> ProviderProjectSnapshot {
+        ProviderProjectSnapshot(
+            provider: .codex,
+            entries: [],
+            availability: .loginRequired
         )
     }
 }

@@ -30,6 +30,8 @@ enum ProjectUsageAggregation {
             .sorted { $0.totalTokens > $1.totalTokens }
 
             return .available(projects)
+        case .loginRequired:
+            return .unavailable("Codex login required")
         case let .unavailable(message):
             return .unavailable(message)
         }

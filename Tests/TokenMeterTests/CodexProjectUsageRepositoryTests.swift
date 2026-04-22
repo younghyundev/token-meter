@@ -45,7 +45,7 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         XCTAssertEqual(projects.map(\.totalTokens), [20, 7, 3])
     }
 
-    func test_returnsUnavailableWhenAuthIsMissing() async throws {
+    func test_returnsLoginRequiredWhenAuthIsMissing() async throws {
         let databaseURL = try makeSQLiteFixture(rows: [
             .init(cwd: "/tmp/workspaces/alpha", rolloutPath: nil, tokensUsed: 5, archived: 0, modelProvider: "openai")
         ])
@@ -62,7 +62,23 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
 
         XCTAssertEqual(snapshot.provider, .codex)
         XCTAssertTrue(snapshot.entries.isEmpty)
-        XCTAssertEqual(snapshot.availability, .unavailable("Codex local data unavailable"))
+        XCTAssertEqual(snapshot.availability, .loginRequired)
+    }
+
+    func test_returnsAvailableWithEmptyEntriesWhenAuthenticatedRangeHasNoRows() async throws {
+        let databaseURL = try makeSQLiteFixture(rows: [])
+        let authURL = try makeAuthFixture(valid: true)
+        let repository = CodexProjectUsageRepository(
+            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL),
+            rolloutParser: CodexRolloutParser(sessionsDirectory: FileManager.default.temporaryDirectory),
+            authStateProbe: CodexAuthStateProbe(authURL: authURL)
+        )
+
+        let snapshot = await repository.projectUsage(for: .all)
+
+        XCTAssertEqual(snapshot.provider, .codex)
+        XCTAssertTrue(snapshot.entries.isEmpty)
+        XCTAssertEqual(snapshot.availability, .available)
     }
 
     func test_preservesDisplayNameNormalizationAndDescendingTokenSorting() async throws {
