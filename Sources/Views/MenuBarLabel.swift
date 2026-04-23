@@ -9,7 +9,7 @@ struct MenuBarLabel: View {
             Image(nsImage: Self.claudeIcon)
                 .frame(width: 16, height: 16)
 
-            Text("\(Int(viewModel.sessionPercentage))%")
+            Text("\(Int(viewModel.menuBarPercentage))%")
                 .font(.system(size: 11, weight: .medium, design: .rounded))
                 .monospacedDigit()
         }

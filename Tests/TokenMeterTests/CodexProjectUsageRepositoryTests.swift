@@ -105,6 +105,29 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         XCTAssertEqual(projects.map(\.totalTokens), [12, 8, 4])
     }
 
+    func test_appliesPeriodFilteringFromSQLiteUpdatedAt() async throws {
+        let referenceNow = Date(timeIntervalSince1970: 1_776_904_700)
+        let databaseURL = try makeSQLiteFixture(rows: [
+            .init(cwd: "/tmp/workspaces/day", rolloutPath: nil, tokensUsed: 10, archived: 0, modelProvider: "openai", updatedAt: Int64(referenceNow.timeIntervalSince1970 - 3600)),
+            .init(cwd: "/tmp/workspaces/week", rolloutPath: nil, tokensUsed: 20, archived: 0, modelProvider: "openai", updatedAt: Int64(referenceNow.timeIntervalSince1970 - (3 * 24 * 3600))),
+            .init(cwd: "/tmp/workspaces/all", rolloutPath: nil, tokensUsed: 30, archived: 0, modelProvider: "openai", updatedAt: Int64(referenceNow.timeIntervalSince1970 - (10 * 24 * 3600)))
+        ])
+        let authURL = try makeAuthFixture(valid: true)
+        let repository = CodexProjectUsageRepository(
+            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL, now: { referenceNow }),
+            rolloutParser: CodexRolloutParser(sessionsDirectory: FileManager.default.temporaryDirectory),
+            authStateProbe: CodexAuthStateProbe(authURL: authURL)
+        )
+
+        let daySnapshot = await repository.projectUsage(for: .day)
+        let weekSnapshot = await repository.projectUsage(for: .week)
+        let allSnapshot = await repository.projectUsage(for: .all)
+
+        XCTAssertEqual(daySnapshot.entries.map(\.projectPath), ["/tmp/workspaces/day"])
+        XCTAssertEqual(Set(weekSnapshot.entries.map(\.projectPath)), Set(["/tmp/workspaces/day", "/tmp/workspaces/week"]))
+        XCTAssertEqual(Set(allSnapshot.entries.map(\.projectPath)), Set(["/tmp/workspaces/day", "/tmp/workspaces/week", "/tmp/workspaces/all"]))
+    }
+
     private func makeSQLiteFixture(rows: [FixtureRow]) throws -> URL {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -124,7 +147,7 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         XCTAssertEqual(
             sqlite3_exec(
                 database,
-                "CREATE TABLE threads (cwd TEXT, rollout_path TEXT, tokens_used INTEGER, archived INTEGER, model_provider TEXT);",
+                "CREATE TABLE threads (cwd TEXT, rollout_path TEXT, tokens_used INTEGER, archived INTEGER, model_provider TEXT, updated_at INTEGER);",
                 nil,
                 nil,
                 nil
@@ -133,7 +156,7 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         )
 
         for row in rows {
-            let sql = "INSERT INTO threads (cwd, rollout_path, tokens_used, archived, model_provider) VALUES (?, ?, ?, ?, ?);"
+            let sql = "INSERT INTO threads (cwd, rollout_path, tokens_used, archived, model_provider, updated_at) VALUES (?, ?, ?, ?, ?, ?);"
             var statement: OpaquePointer?
             XCTAssertEqual(sqlite3_prepare_v2(database, sql, -1, &statement, nil), SQLITE_OK)
             guard let statement else {
@@ -149,6 +172,7 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
             sqlite3_bind_int64(statement, 3, sqlite3_int64(row.tokensUsed))
             sqlite3_bind_int(statement, 4, Int32(row.archived))
             sqlite3_bind_text(statement, 5, row.modelProvider, -1, sqliteTransient)
+            sqlite3_bind_int64(statement, 6, sqlite3_int64(row.updatedAt))
             XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
             sqlite3_finalize(statement)
         }
@@ -198,6 +222,23 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         let tokensUsed: Int
         let archived: Int
         let modelProvider: String
+        let updatedAt: Int64
+
+        init(
+            cwd: String,
+            rolloutPath: String?,
+            tokensUsed: Int,
+            archived: Int,
+            modelProvider: String,
+            updatedAt: Int64 = 1_776_904_700
+        ) {
+            self.cwd = cwd
+            self.rolloutPath = rolloutPath
+            self.tokensUsed = tokensUsed
+            self.archived = archived
+            self.modelProvider = modelProvider
+            self.updatedAt = updatedAt
+        }
     }
 
     private enum FixtureError: Error {
