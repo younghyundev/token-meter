@@ -1,11 +1,23 @@
 import Foundation
 
-final class TokenParser: Sendable {
-    private let claudeDir: URL
+final class TokenParser: @unchecked Sendable {
+    private struct CacheState {
+        let signature: DirectorySignature
+        let entries: [TokenUsageEntry]
+    }
 
-    init() {
+    private struct DirectorySignature: Equatable {
+        let fileCount: Int
+        let newestModificationTime: TimeInterval
+    }
+
+    private let claudeDir: URL
+    private let lock = NSLock()
+    private var cache: CacheState?
+
+    init(claudeDir: URL? = nil) {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        self.claudeDir = home.appendingPathComponent(".claude/projects")
+        self.claudeDir = claudeDir ?? home.appendingPathComponent(".claude/projects")
     }
 
     /// Parse all JSONL files — call from background thread
@@ -13,30 +25,60 @@ final class TokenParser: Sendable {
         let fm = FileManager.default
         guard fm.fileExists(atPath: claudeDir.path) else { return [] }
 
-        guard let projectDirs = try? fm.contentsOfDirectory(
-            at: claudeDir,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: .skipsHiddenFiles
-        ) else { return [] }
+        let jsonlFiles = jsonlFiles(in: claudeDir, fileManager: fm)
+        let signature = makeSignature(for: jsonlFiles)
+
+        lock.lock()
+        if let cache, cache.signature == signature {
+            let entries = cache.entries
+            lock.unlock()
+            return entries
+        }
+        lock.unlock()
 
         var entries: [TokenUsageEntry] = []
         entries.reserveCapacity(4000)
 
-        for projectDir in projectDirs {
-            let projectName = projectDir.lastPathComponent
-            guard let files = try? fm.contentsOfDirectory(
-                at: projectDir,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: .skipsHiddenFiles
-            ) else { continue }
-
-            let jsonlFiles = files.filter { $0.pathExtension == "jsonl" }
-            for file in jsonlFiles {
-                parseJSONLInto(url: file, project: projectName, entries: &entries)
-            }
+        for file in jsonlFiles {
+            let projectName = file.deletingLastPathComponent().lastPathComponent
+            parseJSONLInto(url: file, project: projectName, entries: &entries)
         }
 
+        lock.lock()
+        cache = CacheState(signature: signature, entries: entries)
+        lock.unlock()
+
         return entries
+    }
+
+    private func jsonlFiles(in directory: URL, fileManager: FileManager) -> [URL] {
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles],
+            errorHandler: nil
+        ) else { return [] }
+
+        var files: [URL] = []
+        for case let file as URL in enumerator where file.pathExtension == "jsonl" {
+            files.append(file)
+        }
+        return files
+    }
+
+    private func makeSignature(for files: [URL]) -> DirectorySignature {
+        var newestModificationTime: TimeInterval = 0
+
+        for file in files {
+            let values = try? file.resourceValues(forKeys: [.contentModificationDateKey])
+            let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
+            newestModificationTime = max(newestModificationTime, modified)
+        }
+
+        return DirectorySignature(
+            fileCount: files.count,
+            newestModificationTime: newestModificationTime
+        )
     }
 
     private func parseJSONLInto(url: URL, project: String, entries: inout [TokenUsageEntry]) {

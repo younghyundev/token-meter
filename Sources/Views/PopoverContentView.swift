@@ -58,16 +58,40 @@ struct PopoverContentView: View {
 
     private var usageContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if viewModel.hasCredentials {
-                sessionSection
+            providerSelector
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+            Divider().padding(.horizontal)
+
+            switch viewModel.selectedProvider {
+            case .claude:
+                if viewModel.hasCredentials {
+                    sessionSection
+                    Divider().padding(.horizontal)
+                    weeklySection
+                    Divider().padding(.horizontal)
+                    projectSection
+                } else {
+                    noCredentialsView
+                }
+            case .codex:
+                codexSessionSection
                 Divider().padding(.horizontal)
-                weeklySection
+                codexWeeklySection
                 Divider().padding(.horizontal)
                 projectSection
-            } else {
-                noCredentialsView
             }
         }
+    }
+
+    private var providerSelector: some View {
+        Picker("", selection: $viewModel.selectedProvider) {
+            Text(L("provider.claude")).tag(UsageProvider.claude)
+            Text(L("provider.codex")).tag(UsageProvider.codex)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
     }
 
     // MARK: - Session
@@ -107,8 +131,67 @@ struct PopoverContentView: View {
     private var projectSection: some View {
         ProjectBreakdownView(
             projects: viewModel.projects,
+            availability: viewModel.projectAvailability(for: viewModel.selectedProvider),
+            emptyMessage: projectEmptyMessage,
+            loginRequiredMessage: projectLoginRequiredMessage,
+            unavailableMessage: projectUnavailableMessage,
+            sectionTitle: projectSectionTitle,
             period: $viewModel.projectPeriod
         )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var projectSectionTitle: String {
+        L("projects.title")
+    }
+
+    private var projectEmptyMessage: String {
+        switch viewModel.selectedProvider {
+        case .claude:
+            L("projects.empty")
+        case .codex:
+            L("codex.projects.empty.title")
+        }
+    }
+
+    private var projectLoginRequiredMessage: String {
+        switch viewModel.selectedProvider {
+        case .claude:
+            L("login.description")
+        case .codex:
+            L("codex.login.description")
+        }
+    }
+
+    private var projectUnavailableMessage: String {
+        switch viewModel.selectedProvider {
+        case .claude:
+            L("projects.empty")
+        case .codex:
+            L("codex.projects.unavailable")
+        }
+    }
+    private var codexSessionSection: some View {
+        CodexStatusCardView(snapshot: viewModel.codexStatusSnapshot)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+    }
+
+    private var codexWeeklySection: some View {
+        Group {
+            if let weeklyPercentage = viewModel.codexWeeklyPercentage {
+                UsageGaugeView(
+                    title: L("weekly.title"),
+                    percentage: weeklyPercentage,
+                    subtitle: nil
+                )
+            } else {
+                Text(L("codex.available.description"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
@@ -188,6 +271,8 @@ struct PopoverContentView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .accessibilityLabel(viewModel.selectedProvider == .codex ? L("footer.refresh.codex") : L("footer.refresh"))
+            .help(viewModel.selectedProvider == .codex ? L("footer.refresh.codex") : L("footer.refresh"))
 
             Button(L("footer.quit")) {
                 NSApplication.shared.terminate(nil)

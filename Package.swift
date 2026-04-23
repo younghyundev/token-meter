@@ -11,6 +11,10 @@ let package = Package(
             resources: [
                 .copy("../Resources/Info.plist")
             ]
+        ),
+        .testTarget(
+            name: "TokenMeterTests",
+            dependencies: ["TokenMeter"]
         )
     ]
 )

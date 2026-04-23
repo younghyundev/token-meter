@@ -31,4 +31,6 @@ uninstall:
 	@echo "✓ Uninstalled $(APP_NAME)"
 
 run: build
+	-pkill -x "$(APP_NAME)"
+	@sleep 1
 	open "$(APP_DIR)"
