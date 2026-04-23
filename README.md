@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>macOS menu bar app for monitoring Claude Code token usage in real-time</strong>
+  <strong>macOS menu bar app for monitoring Claude Code and Codex usage from one compact popover</strong>
 </p>
 
 <p align="center">
@@ -18,14 +18,26 @@
 
 ## What is Token Meter?
 
-Token Meter lives in your macOS menu bar and shows your Claude Code API usage at a glance. It reads your Claude Code OAuth credentials and displays:
+Token Meter lives in your macOS menu bar and shows coding-agent usage at a glance. It currently supports:
+
+- **Claude Code**
+  - Session usage (5-hour window)
+  - Weekly usage (7-day window)
+  - Per-project token breakdown
+  - Reset countdown
+- **Codex**
+  - Current session usage from local Codex session snapshots when available
+  - Availability/login-required fallback when no local session metric is available
+  - Per-project token breakdown from local Codex artifacts
+
+For Claude, Token Meter reads your Claude Code OAuth credentials and displays:
 
 - **Session usage (5-hour window)** - Current usage percentage with color-coded gauge
 - **Weekly usage (7-day window)** - Weekly consumption tracking
 - **Per-project token breakdown** - See which projects consume the most tokens
 - **Reset countdown** - Time remaining until your session limit resets
 
-No additional API keys needed - it uses your existing Claude Code login.
+For Codex, Token Meter reads local Codex state on your Mac and shows project usage plus the current session usage or availability/login status.
 
 ## Screenshots
 
@@ -70,15 +82,17 @@ Download the latest `.zip` from [Releases](https://github.com/younghyundev/token
 ## Prerequisites
 
 - **macOS 14.0 (Sonoma)** or later
-- **Claude Code** must be installed and logged in (`claude` CLI)
-  - Token Meter reads credentials from Claude Code's Keychain entry or `~/.claude/.credentials.json`
+- **Claude Code** must be installed and logged in if you want Claude usage
+  - Token Meter reads Claude credentials from the Keychain entry or `~/.claude/.credentials.json`
+- **Codex** must be installed and signed in locally if you want Codex usage
+  - Token Meter reads Codex state from the current user's `~/.codex/auth.json` and `~/.codex/state_5.sqlite`
 
 ## Usage
 
 1. Launch Token Meter - it appears as a Claude icon with a percentage in the menu bar
 2. Click the icon to see detailed usage:
-   - **Session (5h)**: Your current 5-hour rolling window usage
-   - **Weekly (7d)**: Your 7-day rolling window usage
+   - **Claude tab**: Session (5h), weekly (7d), and project breakdown
+  - **Codex tab**: Current Codex session usage when available, otherwise availability/login state, plus project breakdown
    - **Projects**: Token breakdown by project (filterable by 1 day / 7 days / all time)
 3. Click the gear icon to adjust settings:
    - **Language**: Korean / English
@@ -88,10 +102,18 @@ Download the latest `.zip` from [Releases](https://github.com/younghyundev/token
 
 Token Meter uses two data sources:
 
-1. **Anthropic OAuth Usage API** - Fetches your real-time session and weekly utilization percentages using your Claude Code OAuth token
-2. **Local JSONL logs** - Parses `~/.claude/projects/*/**.jsonl` files to calculate per-project token usage breakdown
+1. **Anthropic OAuth Usage API** - Fetches your Claude session and weekly utilization percentages using your Claude Code OAuth token
+2. **Claude local JSONL logs** - Parses `~/.claude/projects/*/**.jsonl` files to calculate Claude project token usage
+3. **Codex local session, auth, and SQLite state** - Reads `~/.codex/sessions/**/rollout-*.jsonl` for Codex session rate-limit snapshots, `~/.codex/auth.json` for fallback login state, and `~/.codex/state_5.sqlite` for project usage
 
 The app automatically refreshes token data if the OAuth token expires, using the refresh token flow.
+
+## Codex Limitations
+
+- Codex session usage is shown when recent local `token_count` events exist in `~/.codex/sessions`.
+- If no local session metric is available, Token Meter falls back to availability/login-required state instead of guessing a quota value.
+- Codex project usage depends on local Codex activity already being present on this Mac and user account.
+- Token Meter does not expose raw Codex auth tokens or local artifact contents in the UI.
 
 ## Configuration
 
@@ -101,6 +123,15 @@ The app automatically refreshes token data if the OAuth token expires, using the
 | Update interval | 60 seconds | How often to fetch usage data |
 
 Settings are persisted in UserDefaults.
+
+## Troubleshooting
+
+- **Claude tab says you are not logged in**
+  - Sign in to Claude Code locally, then relaunch or refresh Token Meter.
+- **Codex tab says login required**
+  - Sign in to Codex locally for the current macOS user, then refresh Token Meter.
+- **Codex tab shows unavailable**
+  - Confirm Codex has been used on this Mac and that the current user has local Codex state under `~/.codex/`, then refresh.
 
 ## Uninstall
 
