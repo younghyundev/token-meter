@@ -1,6 +1,5 @@
 <img width="2172" height="724" alt="image" src="https://github.com/user-attachments/assets/039f5b45-56ad-4041-8b51-08ed791d582c" />
 
-# Token Meter
 <p align="center">
   <strong>macOS menu bar app for monitoring Claude Code and Codex usage from one compact popover</strong>
 </p>
