@@ -6,7 +6,7 @@ struct MenuBarLabel: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(nsImage: Self.claudeIcon)
+            Image(nsImage: Self.appIcon)
                 .frame(width: 16, height: 16)
 
             Text("\(Int(viewModel.menuBarPercentage))%")
@@ -15,40 +15,55 @@ struct MenuBarLabel: View {
         }
     }
 
-    private static let claudeIcon: NSImage = {
-        let bundle = Bundle.main
+    private static let appIcon: NSImage = {
+        let pointSize = NSSize(width: 16, height: 16)
+        let resourceNames = ["menubar-icon-16", "menubar-icon-32"]
+        let image = NSImage(size: pointSize)
+        var didAddRep = false
 
-        // Try loading the pixel art mascot icon
-        let mascotCandidates = [
-            bundle.path(forResource: "menubar-icon-16", ofType: "png"),
-            bundle.resourcePath.map { "\($0)/menubar-icon-16.png" },
-        ]
+        for path in resolveCandidatePaths(for: resourceNames) {
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                  let rep = NSBitmapImageRep(data: data) else { continue }
+            rep.size = pointSize
+            image.addRepresentation(rep)
+            didAddRep = true
+        }
 
-        for candidate in mascotCandidates {
-            guard let path = candidate,
-                  let image = NSImage(contentsOfFile: path) else { continue }
+        if didAddRep {
+            image.size = pointSize
             image.isTemplate = true
-            image.size = NSSize(width: 16, height: 16)
             return image
         }
 
-        // Fallback: load from known path relative to executable
+        let fallback = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Token Meter")!
+        fallback.isTemplate = true
+        return fallback
+    }()
+
+    private static func resolveCandidatePaths(for names: [String]) -> [String] {
+        let bundle = Bundle.main
+        var paths: [String] = []
+
+        for name in names {
+            if let path = bundle.path(forResource: name, ofType: "png") {
+                paths.append(path)
+                continue
+            }
+            if let resourcePath = bundle.resourcePath {
+                paths.append("\(resourcePath)/\(name).png")
+            }
+        }
+
         let execURL = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
         let resourcesDir = execURL
             .deletingLastPathComponent()  // MacOS/
             .deletingLastPathComponent()  // Contents/
             .appendingPathComponent("Contents/Resources")
 
-        let fallbackPath = resourcesDir.appendingPathComponent("menubar-icon-16.png").path
-        if let image = NSImage(contentsOfFile: fallbackPath) {
-            image.isTemplate = true
-            image.size = NSSize(width: 16, height: 16)
-            return image
+        for name in names {
+            paths.append(resourcesDir.appendingPathComponent("\(name).png").path)
         }
 
-        // Last resort: SF Symbol
-        let fallback = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Token Meter")!
-        fallback.isTemplate = true
-        return fallback
-    }()
+        return paths
+    }
 }
