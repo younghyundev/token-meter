@@ -5,6 +5,7 @@ struct ProjectBreakdownView: View {
     let availability: ProviderAvailability
     let emptyMessage: String
     let loginRequiredMessage: String
+    let unavailableMessage: String
     let sectionTitle: String
     @Binding var period: ProjectPeriod
 
@@ -29,8 +30,8 @@ struct ProjectBreakdownView: View {
             switch availability {
             case .loginRequired:
                 stateMessage(loginRequiredMessage)
-            case let .unavailable(message):
-                stateMessage(message)
+            case .unavailable:
+                stateMessage(unavailableMessage)
             case .available where projects.isEmpty:
                 stateMessage(emptyMessage)
             case .available:

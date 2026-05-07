@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    env:
+      APP_NAME: TokenMeter
+      BUILD_DIR: .build/release
+      ZIP_NAME: TokenMeter-${{ github.ref_name }}.zip
+    steps:
+      - name: Check Out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          PLIST_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
+
+          if [[ "$PLIST_VERSION" != "$VERSION" ]]; then
+            echo "Tag version ${VERSION} does not match Resources/Info.plist version ${PLIST_VERSION}" >&2
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "zip_name=TokenMeter-${VERSION}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Build App
+        run: make clean && make build
+
+      - name: Create Release Zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${BUILD_DIR}"
+          zip -r "${{ steps.version.outputs.zip_name }}" "${APP_NAME}.app"
+
+      - name: Generate Release Notes
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          PREV_TAG="$(git tag --sort=-version:refname | grep -Fvx "$TAG" | head -n 1 || true)"
+          NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+
+          {
+            echo "## Token Meter ${VERSION}"
+            echo
+            if [[ -n "$PREV_TAG" ]]; then
+              git log "${PREV_TAG}..HEAD" --pretty=format:'- %s'
+              echo
+              echo
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${TAG}"
+            else
+              git log --pretty=format:'- %s'
+              echo
+            fi
+          } > "$NOTES_FILE"
+
+          echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "${{ env.BUILD_DIR }}/${{ steps.version.outputs.zip_name }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes-file "${{ steps.notes.outputs.path }}"
+
+      - name: Validate Homebrew Tap Secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]]; then
+            echo "Missing HOMEBREW_TAP_TOKEN secret" >&2
+            exit 1
+          fi
+
+      - name: Update Homebrew Tap
+        id: tap
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP_PATH="${BUILD_DIR}/${{ steps.version.outputs.zip_name }}"
+          SHA="$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')"
+          TAP_DIR="$RUNNER_TEMP/homebrew-tap"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/younghyundev/homebrew-tap.git" "$TAP_DIR"
+
+          ruby -pi -e 'gsub(/^  version ".+"$/, "  version \"'"$VERSION"'\"")' "$TAP_DIR/Casks/token-meter.rb"
+          ruby -pi -e 'gsub(/^  sha256 ".+"$/, "  sha256 \"'"$SHA"'\"")' "$TAP_DIR/Casks/token-meter.rb"
+
+          cd "$TAP_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/token-meter.rb
+          git commit -m "chore: update token-meter to ${VERSION}"
+          git push origin main
+
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"

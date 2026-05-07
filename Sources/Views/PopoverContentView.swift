@@ -78,6 +78,8 @@ struct PopoverContentView: View {
             case .codex:
                 codexSessionSection
                 Divider().padding(.horizontal)
+                codexWeeklySection
+                Divider().padding(.horizontal)
                 projectSection
             }
         }
@@ -128,15 +130,13 @@ struct PopoverContentView: View {
 
     private var projectSection: some View {
         ProjectBreakdownView(
-            projects: viewModel.displayProjects(for: viewModel.selectedProvider),
+            projects: viewModel.projects,
             availability: viewModel.projectAvailability(for: viewModel.selectedProvider),
             emptyMessage: projectEmptyMessage,
             loginRequiredMessage: projectLoginRequiredMessage,
+            unavailableMessage: projectUnavailableMessage,
             sectionTitle: projectSectionTitle,
-            period: Binding(
-                get: { viewModel.currentProjectPeriod(for: viewModel.selectedProvider) },
-                set: { setProjectPeriod($0, for: viewModel.selectedProvider) }
-            )
+            period: $viewModel.projectPeriod
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -164,14 +164,36 @@ struct PopoverContentView: View {
         }
     }
 
-    private func setProjectPeriod(_ period: ProjectPeriod, for provider: UsageProvider) {
-        viewModel.setProjectPeriod(period, for: provider)
+    private var projectUnavailableMessage: String {
+        switch viewModel.selectedProvider {
+        case .claude:
+            L("projects.empty")
+        case .codex:
+            L("codex.projects.unavailable")
+        }
     }
-
     private var codexSessionSection: some View {
         CodexStatusCardView(snapshot: viewModel.codexStatusSnapshot)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+    }
+
+    private var codexWeeklySection: some View {
+        Group {
+            if let weeklyPercentage = viewModel.codexWeeklyPercentage {
+                UsageGaugeView(
+                    title: L("weekly.title"),
+                    percentage: weeklyPercentage,
+                    subtitle: nil
+                )
+            } else {
+                Text(L("codex.available.description"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     // MARK: - No Credentials

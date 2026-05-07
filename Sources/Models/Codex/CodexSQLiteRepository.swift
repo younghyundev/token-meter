@@ -32,7 +32,9 @@ final class CodexSQLiteRepository: ProjectUsageRepository, Sendable {
         let sql = """
         SELECT cwd, SUM(tokens_used) AS total_tokens
         FROM threads
-        WHERE archived = 0 AND model_provider = 'openai'
+        WHERE archived = 0
+          AND model_provider = 'openai'
+          AND (? IS NULL OR updated_at >= ?)
         GROUP BY cwd
         ORDER BY total_tokens DESC;
         """
@@ -47,6 +49,15 @@ final class CodexSQLiteRepository: ProjectUsageRepository, Sendable {
             return unavailableSnapshot(message: "Codex usage database is unavailable.")
         }
         defer { sqlite3_finalize(statement) }
+
+        let cutoff = cutoffTimestamp(for: period)
+        if let cutoff {
+            sqlite3_bind_int64(statement, 1, sqlite3_int64(cutoff))
+            sqlite3_bind_int64(statement, 2, sqlite3_int64(cutoff))
+        } else {
+            sqlite3_bind_null(statement, 1)
+            sqlite3_bind_null(statement, 2)
+        }
 
         var entries: [TokenUsageEntry] = []
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -84,5 +95,20 @@ final class CodexSQLiteRepository: ProjectUsageRepository, Sendable {
             entries: [],
             availability: .unavailable(message)
         )
+    }
+
+    private func cutoffTimestamp(for period: ProjectPeriod) -> Int64? {
+        let seconds: TimeInterval
+
+        switch period {
+        case .day:
+            seconds = 24 * 3600
+        case .week:
+            seconds = 7 * 24 * 3600
+        case .all:
+            return nil
+        }
+
+        return Int64(now().addingTimeInterval(-seconds).timeIntervalSince1970)
     }
 }

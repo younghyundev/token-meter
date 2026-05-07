@@ -86,6 +86,29 @@ final class UsageViewModel: ObservableObject {
         usageService.weeklyPercentage
     }
 
+    var codexSessionPercentage: Double? {
+        guard case let .usageMetric(primaryPercentage, _, _) = codexStatusSnapshot else {
+            return nil
+        }
+        return primaryPercentage
+    }
+
+    var codexWeeklyPercentage: Double? {
+        guard case let .usageMetric(_, secondaryPercentage, _) = codexStatusSnapshot else {
+            return nil
+        }
+        return secondaryPercentage
+    }
+
+    var menuBarPercentage: Double {
+        switch selectedProvider {
+        case .claude:
+            return sessionPercentage
+        case .codex:
+            return codexSessionPercentage ?? 0
+        }
+    }
+
     var resetTimeRemaining: String? {
         usageService.resetTimeRemaining
     }
@@ -177,9 +200,10 @@ final class UsageViewModel: ObservableObject {
     }
 
     func setProjectPeriod(_ period: ProjectPeriod, for provider: UsageProvider) {
-        storeProjectPeriod(period, for: provider)
         if provider == selectedProvider {
-            syncSelectedProviderState(shouldLoadProjects: true)
+            projectPeriod = period
+        } else {
+            storeProjectPeriod(period, for: provider)
         }
     }
 
@@ -245,6 +269,10 @@ final class UsageViewModel: ObservableObject {
             codexProjects = projects
             codexProjectAvailability = availability
         }
+
+        if provider == selectedProvider {
+            self.projects = projects
+        }
     }
 
     private func storeProjectPeriod(_ period: ProjectPeriod, for provider: UsageProvider) {
@@ -268,11 +296,16 @@ final class UsageViewModel: ObservableObject {
     }
 }
 
-private struct ClaudeProjectUsageRepository: ProjectUsageRepository, Sendable {
+struct ClaudeProjectUsageRepository: ProjectUsageRepository, Sendable {
     private let parser: TokenParser
+    private let now: @Sendable () -> Date
 
-    init(parser: TokenParser = TokenParser()) {
+    init(
+        parser: TokenParser = TokenParser(),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.parser = parser
+        self.now = now
     }
 
     func projectUsage(for period: ProjectPeriod) async -> ProviderProjectSnapshot {
@@ -289,12 +322,14 @@ private struct ClaudeProjectUsageRepository: ProjectUsageRepository, Sendable {
     }
 
     private func filter(_ entries: [TokenUsageEntry], for period: ProjectPeriod) -> [TokenUsageEntry] {
+        let referenceDate = now()
+
         switch period {
         case .day:
-            let cutoff = Date.now.addingTimeInterval(-24 * 3600)
+            let cutoff = referenceDate.addingTimeInterval(-24 * 3600)
             return entries.filter { $0.timestamp >= cutoff }
         case .week:
-            let cutoff = Date.now.addingTimeInterval(-7 * 24 * 3600)
+            let cutoff = referenceDate.addingTimeInterval(-7 * 24 * 3600)
             return entries.filter { $0.timestamp >= cutoff }
         case .all:
             return entries

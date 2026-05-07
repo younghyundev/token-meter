@@ -5,17 +5,17 @@ struct CodexStatusCardView: View {
 
     var body: some View {
         switch snapshot {
-        case let .usageMetric(percentage, subtitle):
+        case let .usageMetric(primaryPercentage, _, subtitle):
             UsageGaugeView(
                 title: L("session.title"),
-                percentage: percentage,
+                percentage: primaryPercentage,
                 subtitle: subtitle
             )
         case let .availabilityOnly(title, subtitle):
             statusCard(
                 icon: "checkmark.seal",
-                title: title,
-                body: subtitle,
+                title: title.isEmpty ? L("codex.available.title") : title,
+                body: subtitle.isEmpty ? L("codex.available.description") : subtitle,
                 accent: .secondary
             )
         case .loginRequired:
@@ -29,7 +29,7 @@ struct CodexStatusCardView: View {
             statusCard(
                 icon: "exclamationmark.triangle",
                 title: L("codex.unavailable.title"),
-                body: message,
+                body: message.isEmpty ? L("codex.unavailable.description") : L("codex.unavailable.description"),
                 accent: .red
             )
         }

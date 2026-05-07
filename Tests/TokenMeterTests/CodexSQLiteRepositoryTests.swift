@@ -92,7 +92,7 @@ final class CodexSQLiteRepositoryTests: XCTestCase {
         XCTAssertEqual(
             sqlite3_exec(
                 database,
-                "CREATE TABLE threads (cwd TEXT, tokens_used INTEGER, archived INTEGER, model_provider TEXT);",
+                "CREATE TABLE threads (cwd TEXT, tokens_used INTEGER, archived INTEGER, model_provider TEXT, updated_at INTEGER);",
                 nil,
                 nil,
                 nil
@@ -101,7 +101,7 @@ final class CodexSQLiteRepositoryTests: XCTestCase {
         )
 
         for row in rows {
-            let sql = "INSERT INTO threads (cwd, tokens_used, archived, model_provider) VALUES (?, ?, ?, ?);"
+            let sql = "INSERT INTO threads (cwd, tokens_used, archived, model_provider, updated_at) VALUES (?, ?, ?, ?, ?);"
             var statement: OpaquePointer?
             XCTAssertEqual(sqlite3_prepare_v2(database, sql, -1, &statement, nil), SQLITE_OK)
             guard let statement else {
@@ -112,6 +112,7 @@ final class CodexSQLiteRepositoryTests: XCTestCase {
             sqlite3_bind_int64(statement, 2, sqlite3_int64(row.tokensUsed))
             sqlite3_bind_int(statement, 3, Int32(row.archived))
             sqlite3_bind_text(statement, 4, row.modelProvider, -1, sqliteTransient)
+            sqlite3_bind_int64(statement, 5, sqlite3_int64(row.updatedAt))
             XCTAssertEqual(sqlite3_step(statement), SQLITE_DONE)
             sqlite3_finalize(statement)
         }
@@ -124,6 +125,21 @@ final class CodexSQLiteRepositoryTests: XCTestCase {
         let tokensUsed: Int
         let archived: Int
         let modelProvider: String
+        let updatedAt: Int64
+
+        init(
+            cwd: String,
+            tokensUsed: Int,
+            archived: Int,
+            modelProvider: String,
+            updatedAt: Int64 = 1_776_904_700
+        ) {
+            self.cwd = cwd
+            self.tokensUsed = tokensUsed
+            self.archived = archived
+            self.modelProvider = modelProvider
+            self.updatedAt = updatedAt
+        }
     }
 
     private enum FixtureError: Error {
