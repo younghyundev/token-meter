@@ -39,9 +39,11 @@ final class UsageViewModel: ObservableObject {
     private var projectRefreshTask: Task<Void, Never>?
     private var started = false
     private var isSyncingProjectPeriod = false
+    private var projectCache: [UsageProvider: [ProjectPeriod: CachedProjectState]] = [:]
+    private var activeProjectRequest: ProjectRequestKey?
 
     @Published var selectedProvider: UsageProvider = .claude {
-        didSet { syncSelectedProviderState(shouldLoadProjects: true) }
+        didSet { syncSelectedProviderState(shouldRefreshProviderState: true) }
     }
     @Published private(set) var projects: [ProjectUsage] = []
     @Published private(set) var claudeProjects: [ProjectUsage] = []
@@ -49,11 +51,13 @@ final class UsageViewModel: ObservableObject {
     @Published private(set) var claudeProjectAvailability: ProviderAvailability = .available
     @Published private(set) var codexProjectAvailability: ProviderAvailability = .loginRequired
     @Published private(set) var codexStatusSnapshot: CodexStatusSnapshot = .loginRequired
+    @Published private(set) var isProjectLoading = false
     @Published var projectPeriod: ProjectPeriod = .day {
         didSet {
             guard !isSyncingProjectPeriod else { return }
             storeProjectPeriod(projectPeriod, for: selectedProvider)
-            loadProjects(for: selectedProvider)
+            applyCachedProjectState(for: selectedProvider, period: projectPeriod)
+            loadProjects()
         }
     }
     @Published private(set) var claudeProjectPeriod: ProjectPeriod = .day
@@ -185,8 +189,19 @@ final class UsageViewModel: ObservableObject {
 
     func loadProjects(for provider: UsageProvider) {
         projectRefreshTask?.cancel()
+        let period = currentProjectPeriod(for: provider)
+        beginProjectRequest(for: provider, period: period)
         projectRefreshTask = Task { [weak self] in
-            await self?.refreshProviderState(for: provider)
+            await self?.refreshProjectState(for: provider, period: period)
+        }
+    }
+
+    private func loadProviderState(for provider: UsageProvider) {
+        projectRefreshTask?.cancel()
+        let period = currentProjectPeriod(for: provider)
+        beginProjectRequest(for: provider, period: period)
+        projectRefreshTask = Task { [weak self] in
+            await self?.refreshProviderState(for: provider, period: period)
         }
     }
 
@@ -225,19 +240,33 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    func projectLoading(for provider: UsageProvider) -> Bool {
+        guard let activeProjectRequest else { return false }
+        return isProjectLoading
+            && activeProjectRequest.provider == provider
+            && activeProjectRequest.period == currentProjectPeriod(for: provider)
+    }
+
     private func refreshProviderState(for provider: UsageProvider) async {
+        let period = currentProjectPeriod(for: provider)
+        beginProjectRequest(for: provider, period: period)
+        await refreshProviderState(for: provider, period: period)
+    }
+
+    private func refreshProviderState(for provider: UsageProvider, period: ProjectPeriod) async {
         guard !Task.isCancelled else { return }
+        defer { finishProjectRequest(for: provider, period: period) }
 
         switch provider {
         case .claude:
-            let snapshot = await claudeProjectRepository.projectUsage(for: claudeProjectPeriod)
+            let snapshot = await claudeProjectRepository.projectUsage(for: period)
             guard !Task.isCancelled else { return }
-            applyProjectSnapshot(snapshot, for: .claude)
+            applyProjectSnapshot(snapshot, for: .claude, period: period)
         case .codex:
             codexStatusSnapshot = codexStatusRepository.snapshot()
-            let snapshot = await codexProjectRepository.projectUsage(for: codexProjectPeriod)
+            let snapshot = await codexProjectRepository.projectUsage(for: period)
             guard !Task.isCancelled else { return }
-            applyProjectSnapshot(snapshot, for: .codex)
+            applyProjectSnapshot(snapshot, for: .codex, period: period)
         }
 
         if provider == selectedProvider {
@@ -245,22 +274,70 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
-    private func applyProjectSnapshot(_ snapshot: ProviderProjectSnapshot, for provider: UsageProvider) {
+    private func refreshProjectState(for provider: UsageProvider, period: ProjectPeriod) async {
+        guard !Task.isCancelled else { return }
+        defer { finishProjectRequest(for: provider, period: period) }
+
+        let snapshot: ProviderProjectSnapshot
+
+        switch provider {
+        case .claude:
+            snapshot = await claudeProjectRepository.projectUsage(for: period)
+        case .codex:
+            snapshot = await codexProjectRepository.projectUsage(for: period)
+        }
+
+        guard !Task.isCancelled else { return }
+        applyProjectSnapshot(snapshot, for: provider, period: period)
+
+        if provider == selectedProvider {
+            syncSelectedProviderState()
+        }
+    }
+
+    private func beginProjectRequest(for provider: UsageProvider, period: ProjectPeriod) {
+        let request = ProjectRequestKey(provider: provider, period: period)
+        activeProjectRequest = request
+        isProjectLoading = projectCache[provider]?[period] == nil
+    }
+
+    private func finishProjectRequest(for provider: UsageProvider, period: ProjectPeriod) {
+        guard activeProjectRequest == ProjectRequestKey(provider: provider, period: period) else {
+            return
+        }
+
+        activeProjectRequest = nil
+        isProjectLoading = false
+    }
+
+    private func applyProjectSnapshot(
+        _ snapshot: ProviderProjectSnapshot,
+        for provider: UsageProvider,
+        period: ProjectPeriod
+    ) {
         let aggregated = ProjectUsageAggregation.projectUsage(from: snapshot)
 
         switch aggregated {
         case let .available(projects):
-            updateProjects(projects, availability: snapshot.availability, for: provider)
+            updateProjects(projects, availability: snapshot.availability, for: provider, period: period)
         case .unavailable:
-            updateProjects([], availability: snapshot.availability, for: provider)
+            updateProjects([], availability: snapshot.availability, for: provider, period: period)
         }
     }
 
     private func updateProjects(
         _ projects: [ProjectUsage],
         availability: ProviderAvailability,
-        for provider: UsageProvider
+        for provider: UsageProvider,
+        period: ProjectPeriod
     ) {
+        projectCache[provider, default: [:]][period] = CachedProjectState(
+            projects: projects,
+            availability: availability
+        )
+
+        guard currentProjectPeriod(for: provider) == period else { return }
+
         switch provider {
         case .claude:
             claudeProjects = projects
@@ -275,6 +352,23 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    private func applyCachedProjectState(for provider: UsageProvider, period: ProjectPeriod) {
+        guard let cachedState = projectCache[provider]?[period] else { return }
+
+        switch provider {
+        case .claude:
+            claudeProjects = cachedState.projects
+            claudeProjectAvailability = cachedState.availability
+        case .codex:
+            codexProjects = cachedState.projects
+            codexProjectAvailability = cachedState.availability
+        }
+
+        if provider == selectedProvider {
+            projects = cachedState.projects
+        }
+    }
+
     private func storeProjectPeriod(_ period: ProjectPeriod, for provider: UsageProvider) {
         switch provider {
         case .claude:
@@ -284,16 +378,26 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
-    private func syncSelectedProviderState(shouldLoadProjects: Bool = false) {
+    private func syncSelectedProviderState(shouldRefreshProviderState: Bool = false) {
         isSyncingProjectPeriod = true
         projectPeriod = currentProjectPeriod(for: selectedProvider)
         isSyncingProjectPeriod = false
         projects = displayProjects(for: selectedProvider)
 
-        if shouldLoadProjects {
-            loadProjects(for: selectedProvider)
+        if shouldRefreshProviderState {
+            loadProviderState(for: selectedProvider)
         }
     }
+}
+
+private struct CachedProjectState {
+    let projects: [ProjectUsage]
+    let availability: ProviderAvailability
+}
+
+private struct ProjectRequestKey: Equatable {
+    let provider: UsageProvider
+    let period: ProjectPeriod
 }
 
 struct ClaudeProjectUsageRepository: ProjectUsageRepository, Sendable {

@@ -20,7 +20,7 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         )
         let authURL = try makeAuthFixture(valid: true)
         let repository = CodexProjectUsageRepository(
-            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL, now: { .distantPast }),
+            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL, logsDatabaseURL: missingLogsURL(), now: { .distantPast }),
             rolloutParser: CodexRolloutParser(sessionsDirectory: sessionsDirectory),
             authStateProbe: CodexAuthStateProbe(authURL: authURL)
         )
@@ -53,7 +53,7 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString)
             .appendingPathComponent("auth.json")
         let repository = CodexProjectUsageRepository(
-            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL),
+            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL, logsDatabaseURL: missingLogsURL()),
             rolloutParser: CodexRolloutParser(sessionsDirectory: FileManager.default.temporaryDirectory),
             authStateProbe: CodexAuthStateProbe(authURL: missingAuthURL)
         )
@@ -65,11 +65,29 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         XCTAssertEqual(snapshot.availability, .loginRequired)
     }
 
+    func test_preservesSQLiteUnavailableMessage() async throws {
+        let missingDatabaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("missing.sqlite")
+        let authURL = try makeAuthFixture(valid: true)
+        let repository = CodexProjectUsageRepository(
+            sqliteRepository: CodexSQLiteRepository(databaseURL: missingDatabaseURL, logsDatabaseURL: missingLogsURL()),
+            rolloutParser: CodexRolloutParser(sessionsDirectory: FileManager.default.temporaryDirectory),
+            authStateProbe: CodexAuthStateProbe(authURL: authURL)
+        )
+
+        let snapshot = await repository.projectUsage(for: .all)
+
+        XCTAssertEqual(snapshot.provider, .codex)
+        XCTAssertTrue(snapshot.entries.isEmpty)
+        XCTAssertEqual(snapshot.availability, .unavailable("Codex usage database is missing at \(missingDatabaseURL.path)."))
+    }
+
     func test_returnsAvailableWithEmptyEntriesWhenAuthenticatedRangeHasNoRows() async throws {
         let databaseURL = try makeSQLiteFixture(rows: [])
         let authURL = try makeAuthFixture(valid: true)
         let repository = CodexProjectUsageRepository(
-            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL),
+            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL, logsDatabaseURL: missingLogsURL()),
             rolloutParser: CodexRolloutParser(sessionsDirectory: FileManager.default.temporaryDirectory),
             authStateProbe: CodexAuthStateProbe(authURL: authURL)
         )
@@ -89,7 +107,7 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         ])
         let authURL = try makeAuthFixture(valid: true)
         let repository = CodexProjectUsageRepository(
-            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL),
+            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL, logsDatabaseURL: missingLogsURL()),
             rolloutParser: CodexRolloutParser(sessionsDirectory: FileManager.default.temporaryDirectory),
             authStateProbe: CodexAuthStateProbe(authURL: authURL)
         )
@@ -114,7 +132,7 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
         ])
         let authURL = try makeAuthFixture(valid: true)
         let repository = CodexProjectUsageRepository(
-            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL, now: { referenceNow }),
+            sqliteRepository: CodexSQLiteRepository(databaseURL: databaseURL, logsDatabaseURL: missingLogsURL(), now: { referenceNow }),
             rolloutParser: CodexRolloutParser(sessionsDirectory: FileManager.default.temporaryDirectory),
             authStateProbe: CodexAuthStateProbe(authURL: authURL)
         )
@@ -214,6 +232,12 @@ final class CodexProjectUsageRepositoryTests: XCTestCase {
             : "{"
         try contents.write(to: authURL, atomically: true, encoding: .utf8)
         return authURL
+    }
+
+    private func missingLogsURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("missing-logs.sqlite")
     }
 
     private struct FixtureRow {

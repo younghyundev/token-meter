@@ -1,10 +1,10 @@
 import Foundation
 
-enum ProjectPeriod: String, CaseIterable {
+enum ProjectPeriod: String, CaseIterable, Hashable {
     case day, week, all
 }
 
-enum UsageProvider: Equatable {
+enum UsageProvider: Equatable, Hashable {
     case claude
     case codex
 }

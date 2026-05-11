@@ -194,6 +194,108 @@ final class UsageViewModelTests: XCTestCase {
         XCTAssertEqual(claudeRepository.requestedPeriods.last, .week)
     }
 
+    func test_settingCodexPeriodReloadsCodexProjectsForSelectedPeriod() async {
+        let codexRepository = PeriodAwareMockProjectUsageRepository(
+            provider: .codex,
+            snapshotsByPeriod: [
+                .day: makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/day", totalTokens: 10)]),
+                .week: makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/week", totalTokens: 20)]),
+                .all: makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/all", totalTokens: 30)])
+            ]
+        )
+        let viewModel = UsageViewModel(
+            usageService: MockUsageService(),
+            claudeProjectRepository: MockProjectUsageRepository(provider: .claude, snapshots: [makeSnapshot(provider: .claude, entries: [])]),
+            codexProjectRepository: codexRepository,
+            codexStatusRepository: MockCodexStatusRepository(
+                snapshots: [.availabilityOnly(title: "Codex available", subtitle: "Authenticated")]
+            )
+        )
+
+        viewModel.selectedProvider = .codex
+        await Task.yield()
+        viewModel.setProjectPeriod(.all, for: .codex)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(viewModel.currentProjectPeriod(for: .codex), .all)
+        XCTAssertEqual(viewModel.projectPeriod, .all)
+        XCTAssertEqual(viewModel.displayProjects(for: .codex).map(\.displayName), ["all"])
+        XCTAssertEqual(codexRepository.requestedPeriods.last, .all)
+    }
+
+    func test_settingCodexPeriodDoesNotRefreshCodexSessionStatus() async {
+        let codexStatusRepository = MockCodexStatusRepository(
+            snapshots: [
+                .usageMetric(
+                    primaryPercentage: 42,
+                    secondaryPercentage: 11,
+                    subtitle: "5h window • resets in 1h"
+                )
+            ]
+        )
+        let viewModel = UsageViewModel(
+            usageService: MockUsageService(),
+            claudeProjectRepository: MockProjectUsageRepository(provider: .claude, snapshots: [makeSnapshot(provider: .claude, entries: [])]),
+            codexProjectRepository: PeriodAwareMockProjectUsageRepository(
+                provider: .codex,
+                snapshotsByPeriod: [
+                    .day: makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/day", totalTokens: 10)]),
+                    .all: makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/all", totalTokens: 30)])
+                ]
+            ),
+            codexStatusRepository: codexStatusRepository
+        )
+
+        viewModel.selectedProvider = .codex
+        try? await Task.sleep(for: .milliseconds(50))
+        let statusCallsAfterSelectingCodex = codexStatusRepository.snapshotCalls
+
+        viewModel.setProjectPeriod(.all, for: .codex)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertGreaterThanOrEqual(statusCallsAfterSelectingCodex, 1)
+        XCTAssertEqual(codexStatusRepository.snapshotCalls, statusCallsAfterSelectingCodex)
+        XCTAssertEqual(viewModel.codexSessionPercentage, 42)
+        XCTAssertEqual(viewModel.codexWeeklyPercentage, 11)
+    }
+
+    func test_settingPreviouslyLoadedCodexPeriodShowsCachedProjectsImmediately() async {
+        let codexRepository = PeriodAwareMockProjectUsageRepository(
+            provider: .codex,
+            snapshotsByPeriod: [
+                .day: makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/day", totalTokens: 10)]),
+                .all: makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/all", totalTokens: 30)])
+            ],
+            delay: .milliseconds(100)
+        )
+        let viewModel = UsageViewModel(
+            usageService: MockUsageService(),
+            claudeProjectRepository: MockProjectUsageRepository(provider: .claude, snapshots: [makeSnapshot(provider: .claude, entries: [])]),
+            codexProjectRepository: codexRepository,
+            codexStatusRepository: MockCodexStatusRepository(
+                snapshots: [.availabilityOnly(title: "Codex available", subtitle: "Authenticated")]
+            )
+        )
+
+        viewModel.selectedProvider = .codex
+        viewModel.setProjectPeriod(.all, for: .codex)
+        XCTAssertTrue(viewModel.projectLoading(for: .codex))
+        try? await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(viewModel.projectLoading(for: .codex))
+        XCTAssertEqual(viewModel.displayProjects(for: .codex).map(\.displayName), ["all"])
+
+        viewModel.setProjectPeriod(.day, for: .codex)
+        XCTAssertTrue(viewModel.projectLoading(for: .codex))
+        try? await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(viewModel.projectLoading(for: .codex))
+        XCTAssertEqual(viewModel.displayProjects(for: .codex).map(\.displayName), ["day"])
+
+        viewModel.setProjectPeriod(.all, for: .codex)
+
+        XCTAssertFalse(viewModel.projectLoading(for: .codex))
+        XCTAssertEqual(viewModel.displayProjects(for: .codex).map(\.displayName), ["all"])
+    }
+
     private func makeSnapshot(provider: UsageProvider, entries: [TokenUsageEntry]) -> ProviderProjectSnapshot {
         ProviderProjectSnapshot(
             provider: provider,
@@ -281,15 +383,24 @@ private final class MockCodexStatusRepository: CodexStatusRepositoryProtocol {
 private final class PeriodAwareMockProjectUsageRepository: ProjectUsageRepository {
     private let provider: UsageProvider
     private let snapshotsByPeriod: [ProjectPeriod: ProviderProjectSnapshot]
+    private let delay: Duration?
     private(set) var requestedPeriods: [ProjectPeriod] = []
 
-    init(provider: UsageProvider, snapshotsByPeriod: [ProjectPeriod: ProviderProjectSnapshot]) {
+    init(
+        provider: UsageProvider,
+        snapshotsByPeriod: [ProjectPeriod: ProviderProjectSnapshot],
+        delay: Duration? = nil
+    ) {
         self.provider = provider
         self.snapshotsByPeriod = snapshotsByPeriod
+        self.delay = delay
     }
 
     func projectUsage(for period: ProjectPeriod) async -> ProviderProjectSnapshot {
         requestedPeriods.append(period)
+        if let delay {
+            try? await Task.sleep(for: delay)
+        }
         return snapshotsByPeriod[period] ?? ProviderProjectSnapshot(
             provider: provider,
             entries: [],

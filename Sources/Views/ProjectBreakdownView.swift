@@ -3,6 +3,7 @@ import SwiftUI
 struct ProjectBreakdownView: View {
     let projects: [ProjectUsage]
     let availability: ProviderAvailability
+    let isLoading: Bool
     let emptyMessage: String
     let loginRequiredMessage: String
     let unavailableMessage: String
@@ -27,19 +28,37 @@ struct ProjectBreakdownView: View {
                 .frame(width: 140)
             }
 
-            switch availability {
-            case .loginRequired:
-                stateMessage(loginRequiredMessage)
-            case .unavailable:
-                stateMessage(unavailableMessage)
-            case .available where projects.isEmpty:
-                stateMessage(emptyMessage)
-            case .available:
-                ForEach(Array(projects.prefix(8).enumerated()), id: \.element.id) { index, project in
-                    ProjectRow(project: project, colorIndex: index)
+            if isLoading {
+                loadingMessage
+            } else {
+                switch availability {
+                case .loginRequired:
+                    stateMessage(loginRequiredMessage)
+                case let .unavailable(message):
+                    stateMessage(message.isEmpty ? unavailableMessage : message)
+                case .available where projects.isEmpty:
+                    stateMessage(emptyMessage)
+                case .available:
+                    ForEach(Array(projects.prefix(8).enumerated()), id: \.element.id) { index, project in
+                        ProjectRow(project: project, colorIndex: index)
+                    }
                 }
             }
         }
+    }
+
+    private var loadingMessage: some View {
+        HStack(spacing: 6) {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.65)
+                .frame(width: 12, height: 12)
+
+            Text(L("projects.loading"))
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+        .frame(height: 16)
     }
 
     private func stateMessage(_ message: String) -> some View {

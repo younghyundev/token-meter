@@ -132,6 +132,7 @@ struct PopoverContentView: View {
         ProjectBreakdownView(
             projects: viewModel.projects,
             availability: viewModel.projectAvailability(for: viewModel.selectedProvider),
+            isLoading: viewModel.projectLoading(for: viewModel.selectedProvider),
             emptyMessage: projectEmptyMessage,
             loginRequiredMessage: projectLoginRequiredMessage,
             unavailableMessage: projectUnavailableMessage,
