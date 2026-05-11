@@ -21,7 +21,8 @@ final class CodexStatusRepositoryTests: XCTestCase {
                 authURL: FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString)
                     .appendingPathComponent("missing-auth.json")
-            )
+            ),
+            now: { Date(timeIntervalSince1970: 1_776_800_000) }
         )
 
         let snapshot = repository.snapshot()
@@ -33,6 +34,70 @@ final class CodexStatusRepositoryTests: XCTestCase {
         XCTAssertEqual(secondaryPercentage, 4)
         XCTAssertNotNil(subtitle)
         XCTAssertTrue(subtitle?.contains("5h window") == true)
+    }
+
+    func test_keepsExpiredPrimaryRateLimitSnapshotWhenItIsLatestLocalMetric() {
+        let repository = CodexStatusRepository(
+            sessionRateLimitParser: MockCodexSessionRateLimitParser(
+                snapshot: CodexSessionRateLimitSnapshot(
+                    primaryUsedPercent: 87,
+                    primaryWindowMinutes: 300,
+                    primaryResetsAt: Date(timeIntervalSince1970: 1_776_799_000),
+                    secondaryUsedPercent: 42,
+                    secondaryWindowMinutes: 10080,
+                    secondaryResetsAt: Date(timeIntervalSince1970: 1_776_900_000),
+                    totalTokens: nil,
+                    planType: "prolite",
+                    observedAt: Date(timeIntervalSince1970: 1_776_798_000)
+                )
+            ),
+            authStateProbe: CodexAuthStateProbe(
+                authURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathComponent("missing-auth.json")
+            ),
+            now: { Date(timeIntervalSince1970: 1_776_800_000) }
+        )
+
+        guard case let .usageMetric(primaryPercentage, secondaryPercentage, subtitle) = repository.snapshot() else {
+            return XCTFail("Expected usage metric snapshot")
+        }
+
+        XCTAssertEqual(primaryPercentage, 87)
+        XCTAssertEqual(secondaryPercentage, 42)
+        XCTAssertFalse(subtitle?.contains("resets in") == true)
+    }
+
+    func test_omitsExpiredSecondaryRateLimitFromUsageSnapshot() {
+        let repository = CodexStatusRepository(
+            sessionRateLimitParser: MockCodexSessionRateLimitParser(
+                snapshot: CodexSessionRateLimitSnapshot(
+                    primaryUsedPercent: 21,
+                    primaryWindowMinutes: 300,
+                    primaryResetsAt: Date(timeIntervalSince1970: 1_776_900_000),
+                    secondaryUsedPercent: 75,
+                    secondaryWindowMinutes: 10080,
+                    secondaryResetsAt: Date(timeIntervalSince1970: 1_776_799_000),
+                    totalTokens: nil,
+                    planType: "prolite",
+                    observedAt: Date(timeIntervalSince1970: 1_776_798_000)
+                )
+            ),
+            authStateProbe: CodexAuthStateProbe(
+                authURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathComponent("missing-auth.json")
+            ),
+            now: { Date(timeIntervalSince1970: 1_776_800_000) }
+        )
+
+        guard case let .usageMetric(primaryPercentage, secondaryPercentage, subtitle) = repository.snapshot() else {
+            return XCTFail("Expected usage metric snapshot")
+        }
+
+        XCTAssertEqual(primaryPercentage, 21)
+        XCTAssertNil(secondaryPercentage)
+        XCTAssertFalse(subtitle?.contains("7d window") == true)
     }
 
     func test_returnsLoginRequiredWhenAuthIsMissing() {

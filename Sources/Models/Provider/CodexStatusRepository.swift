@@ -10,20 +10,23 @@ enum CodexStatusSnapshot: Equatable {
 struct CodexStatusRepository: Sendable {
     private let sessionRateLimitParser: any CodexSessionRateLimitParsing
     private let authStateProbe: CodexAuthStateProbe
+    private let now: @Sendable () -> Date
 
     init(
         sessionRateLimitParser: any CodexSessionRateLimitParsing = CodexSessionRateLimitParser(),
-        authStateProbe: CodexAuthStateProbe = CodexAuthStateProbe()
+        authStateProbe: CodexAuthStateProbe = CodexAuthStateProbe(),
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.sessionRateLimitParser = sessionRateLimitParser
         self.authStateProbe = authStateProbe
+        self.now = now
     }
 
     func snapshot() -> CodexStatusSnapshot {
         if let sessionSnapshot = sessionRateLimitParser.latestSnapshot() {
             return .usageMetric(
                 primaryPercentage: sessionSnapshot.primaryUsedPercent,
-                secondaryPercentage: sessionSnapshot.secondaryUsedPercent,
+                secondaryPercentage: currentSecondaryPercentage(from: sessionSnapshot),
                 subtitle: makeSubtitle(from: sessionSnapshot)
             )
         }
@@ -46,11 +49,11 @@ struct CodexStatusRepository: Sendable {
             parts.append(windowLabel(for: primaryWindowMinutes))
         }
 
-        if let primaryResetsAt = snapshot.primaryResetsAt {
+        if let primaryResetsAt = snapshot.primaryResetsAt, primaryResetsAt > now() {
             parts.append("resets in \(relativeTimeString(until: primaryResetsAt))")
         }
 
-        if let secondaryUsedPercent = snapshot.secondaryUsedPercent,
+        if let secondaryUsedPercent = currentSecondaryPercentage(from: snapshot),
            let secondaryWindowMinutes = snapshot.secondaryWindowMinutes {
             parts.append("\(windowLabel(for: secondaryWindowMinutes)) \(Int(secondaryUsedPercent))%")
         }
@@ -62,8 +65,20 @@ struct CodexStatusRepository: Sendable {
         return parts.isEmpty ? nil : parts.joined(separator: " • ")
     }
 
+    private func currentSecondaryPercentage(from snapshot: CodexSessionRateLimitSnapshot) -> Double? {
+        guard let secondaryUsedPercent = snapshot.secondaryUsedPercent else {
+            return nil
+        }
+
+        if let secondaryResetsAt = snapshot.secondaryResetsAt, secondaryResetsAt <= now() {
+            return nil
+        }
+
+        return secondaryUsedPercent
+    }
+
     private func relativeTimeString(until date: Date) -> String {
-        let remaining = max(0, Int(date.timeIntervalSinceNow))
+        let remaining = max(0, Int(date.timeIntervalSince(now())))
         let hours = remaining / 3600
         let minutes = (remaining % 3600) / 60
 
