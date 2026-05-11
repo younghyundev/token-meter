@@ -47,6 +47,7 @@ struct ProjectBreakdownView: View {
         }
     }
 
+    @MainActor
     private var loadingMessage: some View {
         HStack(spacing: 6) {
             ProgressView()
