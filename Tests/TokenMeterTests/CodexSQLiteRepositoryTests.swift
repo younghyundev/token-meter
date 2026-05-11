@@ -19,9 +19,16 @@ final class CodexSQLiteRepositoryTests: XCTestCase {
         let snapshot = await repository.projectUsage(for: .all)
 
         XCTAssertEqual(snapshot.availability, .available)
-        XCTAssertEqual(snapshot.entries.map(\.projectPath), ["/tmp/alpha", "/tmp/beta"])
-        XCTAssertEqual(snapshot.entries.map(\.totalTokens), [25, 4])
-        XCTAssertEqual(snapshot.entries.map(\.timestamp), [.distantPast, .distantPast])
+        XCTAssertEqual(snapshot.entries.map(\.projectPath), ["/tmp/alpha", "/tmp/alpha", "/tmp/beta"])
+        XCTAssertEqual(snapshot.entries.map(\.totalTokens), [20, 5, 4])
+
+        let aggregated = ProjectUsageAggregation.projectUsage(from: snapshot)
+        guard case let .available(projects) = aggregated else {
+            return XCTFail("Expected available project usage")
+        }
+
+        XCTAssertEqual(projects.map(\.name), ["/tmp/alpha", "/tmp/beta"])
+        XCTAssertEqual(projects.map(\.totalTokens), [25, 4])
     }
 
     func test_returnsUnavailableForMissingDatabase() async {

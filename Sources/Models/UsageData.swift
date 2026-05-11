@@ -1,21 +1,21 @@
 import Foundation
 
-enum ProjectPeriod: String, CaseIterable, Hashable {
+enum ProjectPeriod: String, CaseIterable, Hashable, Sendable {
     case day, week, all
 }
 
-enum UsageProvider: Equatable, Hashable {
+enum UsageProvider: Equatable, Hashable, Sendable {
     case claude
     case codex
 }
 
-enum ProviderAvailability: Equatable {
+enum ProviderAvailability: Equatable, Sendable {
     case available
     case loginRequired
     case unavailable(String)
 }
 
-struct TokenUsageEntry: Identifiable {
+struct TokenUsageEntry: Identifiable, Sendable {
     let id = UUID()
     let timestamp: Date
     let sessionId: String
@@ -35,13 +35,13 @@ struct TokenUsageEntry: Identifiable {
     }
 }
 
-struct ProviderProjectSnapshot {
+struct ProviderProjectSnapshot: Sendable {
     let provider: UsageProvider
     let entries: [TokenUsageEntry]
     let availability: ProviderAvailability
 }
 
-struct ProjectUsage: Identifiable, Equatable {
+struct ProjectUsage: Identifiable, Equatable, Sendable {
     let id = UUID()
     let name: String
     let displayName: String
