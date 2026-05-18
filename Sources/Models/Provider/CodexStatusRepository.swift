@@ -1,6 +1,6 @@
 import Foundation
 
-enum CodexStatusSnapshot: Equatable {
+enum CodexStatusSnapshot: Equatable, Sendable {
     case usageMetric(primaryPercentage: Double, secondaryPercentage: Double?, subtitle: String?)
     case availabilityOnly(title: String, subtitle: String)
     case loginRequired

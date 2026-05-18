@@ -20,11 +20,11 @@ struct TokenMeterApp: App {
             PopoverContentView(viewModel: viewModel)
                 .ignoresSafeArea()
                 .modifier(MenuBarContentMarginsFix())
+        } label: {
+            MenuBarLabel(viewModel: viewModel)
                 .task {
                     viewModel.start()
                 }
-        } label: {
-            MenuBarLabel(viewModel: viewModel)
         }
         .menuBarExtraStyle(.window)
     }

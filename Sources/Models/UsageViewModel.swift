@@ -17,7 +17,7 @@ protocol UsageServiceProtocol: AnyObject {
 
 extension AnthropicUsageService: UsageServiceProtocol {}
 
-protocol CodexStatusRepositoryProtocol {
+protocol CodexStatusRepositoryProtocol: Sendable {
     func snapshot() -> CodexStatusSnapshot
 }
 
@@ -37,10 +37,12 @@ final class UsageViewModel: ObservableObject {
     private var timer: Timer?
     private var cancellable: AnyCancellable?
     private var projectRefreshTask: Task<Void, Never>?
+    private var codexStatusRefreshTask: Task<Void, Never>?
     private var started = false
     private var isSyncingProjectPeriod = false
     private var projectCache: [UsageProvider: [ProjectPeriod: CachedProjectState]] = [:]
     private var activeProjectRequest: ProjectRequestKey?
+    private let projectCacheFreshnessInterval: TimeInterval = 30
 
     @Published var selectedProvider: UsageProvider = .claude {
         didSet { syncSelectedProviderState(shouldRefreshProviderState: true) }
@@ -153,6 +155,7 @@ final class UsageViewModel: ObservableObject {
         timer = nil
         cancellable?.cancel()
         projectRefreshTask?.cancel()
+        codexStatusRefreshTask?.cancel()
     }
 
     private func scheduleTimer() {
@@ -169,6 +172,7 @@ final class UsageViewModel: ObservableObject {
         if selectedProvider == .claude {
             await usageService.fetchUsage(force: false)
         }
+        await refreshCodexStatus()
         await refreshProviderState(for: selectedProvider)
         lastRefreshed = .now
     }
@@ -177,6 +181,7 @@ final class UsageViewModel: ObservableObject {
         if selectedProvider == .claude {
             await usageService.fetchUsage(force: true)
         }
+        await refreshCodexStatus()
         await refreshProviderState(for: selectedProvider)
         lastRefreshed = .now
     }
@@ -188,8 +193,13 @@ final class UsageViewModel: ObservableObject {
     }
 
     func loadProjects(for provider: UsageProvider) {
-        projectRefreshTask?.cancel()
+        cancelProjectRefresh()
         let period = currentProjectPeriod(for: provider)
+        if hasFreshProjectCache(for: provider, period: period) {
+            applyCachedProjectState(for: provider, period: period)
+            return
+        }
+
         beginProjectRequest(for: provider, period: period)
         projectRefreshTask = Task { [weak self] in
             await self?.refreshProjectState(for: provider, period: period)
@@ -197,8 +207,16 @@ final class UsageViewModel: ObservableObject {
     }
 
     private func loadProviderState(for provider: UsageProvider) {
-        projectRefreshTask?.cancel()
+        if provider == .codex {
+            loadCodexStatus()
+        }
+        cancelProjectRefresh()
         let period = currentProjectPeriod(for: provider)
+        if hasFreshProjectCache(for: provider, period: period) {
+            applyCachedProjectState(for: provider, period: period)
+            return
+        }
+
         beginProjectRequest(for: provider, period: period)
         projectRefreshTask = Task { [weak self] in
             await self?.refreshProviderState(for: provider, period: period)
@@ -263,7 +281,6 @@ final class UsageViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             applyProjectSnapshot(snapshot, for: .claude, period: period)
         case .codex:
-            codexStatusSnapshot = codexStatusRepository.snapshot()
             let snapshot = await codexProjectRepository.projectUsage(for: period)
             guard !Task.isCancelled else { return }
             applyProjectSnapshot(snapshot, for: .codex, period: period)
@@ -272,6 +289,30 @@ final class UsageViewModel: ObservableObject {
         if provider == selectedProvider {
             syncSelectedProviderState()
         }
+    }
+
+    private func cancelProjectRefresh() {
+        projectRefreshTask?.cancel()
+        projectRefreshTask = nil
+        activeProjectRequest = nil
+        isProjectLoading = false
+    }
+
+    private func loadCodexStatus() {
+        codexStatusRefreshTask?.cancel()
+        codexStatusRefreshTask = Task { [weak self] in
+            await self?.refreshCodexStatus()
+        }
+    }
+
+    private func refreshCodexStatus() async {
+        let repository = codexStatusRepository
+        let snapshot = await Task.detached(priority: .utility) {
+            repository.snapshot()
+        }.value
+
+        guard !Task.isCancelled else { return }
+        codexStatusSnapshot = snapshot
     }
 
     private func refreshProjectState(for provider: UsageProvider, period: ProjectPeriod) async {
@@ -333,7 +374,8 @@ final class UsageViewModel: ObservableObject {
     ) {
         projectCache[provider, default: [:]][period] = CachedProjectState(
             projects: projects,
-            availability: availability
+            availability: availability,
+            loadedAt: Date()
         )
 
         guard currentProjectPeriod(for: provider) == period else { return }
@@ -369,6 +411,11 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    private func hasFreshProjectCache(for provider: UsageProvider, period: ProjectPeriod) -> Bool {
+        guard let cachedState = projectCache[provider]?[period] else { return false }
+        return Date().timeIntervalSince(cachedState.loadedAt) < projectCacheFreshnessInterval
+    }
+
     private func storeProjectPeriod(_ period: ProjectPeriod, for provider: UsageProvider) {
         switch provider {
         case .claude:
@@ -393,6 +440,7 @@ final class UsageViewModel: ObservableObject {
 private struct CachedProjectState {
     let projects: [ProjectUsage]
     let availability: ProviderAvailability
+    let loadedAt: Date
 }
 
 private struct ProjectRequestKey: Equatable {

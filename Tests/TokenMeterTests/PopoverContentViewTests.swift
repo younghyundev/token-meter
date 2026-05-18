@@ -179,7 +179,7 @@ private final class PopoverMockProjectUsageRepository: ProjectUsageRepository {
     }
 }
 
-private final class PopoverMockCodexStatusRepository: CodexStatusRepositoryProtocol {
+private final class PopoverMockCodexStatusRepository: CodexStatusRepositoryProtocol, @unchecked Sendable {
     private var snapshots: [CodexStatusSnapshot]
 
     init(snapshots: [CodexStatusSnapshot]) {

@@ -46,6 +46,36 @@ final class UsageViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.displayProjects(for: .claude).map(\.displayName), ["claude"])
     }
 
+    func test_refreshUpdatesCodexStatusEvenWhenClaudeIsSelected() async {
+        let codexStatusRepository = MockCodexStatusRepository(
+            snapshots: [
+                .usageMetric(
+                    primaryPercentage: 17,
+                    secondaryPercentage: 23,
+                    subtitle: "5h window • 7d window 23%"
+                )
+            ]
+        )
+        let codexRepository = MockProjectUsageRepository(
+            provider: .codex,
+            snapshots: [makeSnapshot(provider: .codex, entries: [makeEntry(projectPath: "/tmp/workspaces/codex", totalTokens: 13)])]
+        )
+        let viewModel = UsageViewModel(
+            usageService: MockUsageService(),
+            claudeProjectRepository: MockProjectUsageRepository(provider: .claude, snapshots: [makeSnapshot(provider: .claude, entries: [])]),
+            codexProjectRepository: codexRepository,
+            codexStatusRepository: codexStatusRepository
+        )
+
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.selectedProvider, .claude)
+        XCTAssertEqual(codexStatusRepository.snapshotCalls, 1)
+        XCTAssertTrue(codexRepository.requestedPeriods.isEmpty)
+        XCTAssertEqual(viewModel.codexSessionPercentage, 17)
+        XCTAssertEqual(viewModel.codexWeeklyPercentage, 23)
+    }
+
     func test_forceRefreshPreservesSelectedProviderAndOnlyRefreshesVisibleProvider() async {
         let usageService = MockUsageService()
         let claudeRepository = MockProjectUsageRepository(
@@ -363,7 +393,7 @@ private final class MockProjectUsageRepository: ProjectUsageRepository {
     }
 }
 
-private final class MockCodexStatusRepository: CodexStatusRepositoryProtocol {
+private final class MockCodexStatusRepository: CodexStatusRepositoryProtocol, @unchecked Sendable {
     private var snapshots: [CodexStatusSnapshot]
     private(set) var snapshotCalls = 0
 
